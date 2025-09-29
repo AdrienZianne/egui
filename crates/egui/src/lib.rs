@@ -432,6 +432,7 @@ pub(crate) mod placer;
 pub mod response;
 mod sense;
 pub mod style;
+pub mod style_trait;
 pub mod text_selection;
 mod ui;
 mod ui_builder;
