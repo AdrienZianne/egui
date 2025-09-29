@@ -16,6 +16,7 @@ fn main() -> eframe::Result {
     let mut age = 42;
 
     eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
+        ctx.set_style_engine(ctx.style());
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("My egui Application");
             ui.horizontal(|ui| {

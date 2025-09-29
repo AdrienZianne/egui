@@ -1,10 +1,13 @@
 use std::{mem, sync::Arc};
 
+use emath::TSTransform;
+use epaint::text::TextFormat;
+
 use crate::{
     Atom, AtomExt as _, AtomKind, AtomLayout, AtomLayoutResponse, Color32, CornerRadius, Frame,
     Image, IntoAtoms, NumExt as _, Response, RichText, Sense, Stroke, TextStyle, TextWrapMode, Ui,
     Vec2, Widget, WidgetInfo, WidgetText, WidgetType,
-    style_trait::{Classes, HasClasses, StyleSheet, WidgetStyle},
+    style_trait::{Classes, HasClasses, StyleSheet},
 };
 
 /// Clickable button with text.
@@ -54,12 +57,14 @@ impl HasClasses for Button<'_> {
 #[derive(Default)]
 struct ButtonStyle {
     background_color: Color32,
+    text: TextFormat,
 }
 
 impl From<StyleSheet> for ButtonStyle {
     fn from(value: StyleSheet) -> Self {
         Self {
             background_color: value.background,
+            text: value.text,
         }
     }
 }
@@ -324,7 +329,7 @@ impl<'a> Button<'a> {
         let response = ui.ctx().read_response(ui.next_auto_id());
 
         let style: ButtonStyle = response
-            .map(|r| ui.widget_style(&r, &classes))
+            .map(|r| ui.widget_style(ui, &r, &classes))
             .unwrap_or_default();
 
         layout.map_texts(|t| match t {
@@ -340,15 +345,16 @@ impl<'a> Button<'a> {
             w => w,
         });
 
-        let mut prepared = layout.frame(style.frame).min_size(min_size).allocate(ui);
+        let mut prepared = layout.frame(Frame::default()).min_size(min_size).allocate(ui);
 
         let response = if ui.is_rect_visible(prepared.response.rect) {
             // let visuals = ui.style().interact_selectable(&prepared.response, selected);
             let visuals: ButtonStyle = ui.widget_style(
+                ui,
                 &prepared.response,
                 &classes.with_if("selected".into(), selected),
             );
-            ui.with_visual_transform(visuals.transform, |ui| {
+            ui.with_visual_transform(TSTransform::new(Vec2::ZERO, 1.0), |ui| {
                 let visible_frame = if frame_when_inactive {
                     has_frame_margin
                 } else {
@@ -365,7 +371,7 @@ impl<'a> Button<'a> {
                 prepared.fallback_text_color = visuals.text.color;
 
                 if visible_frame {
-                    prepared.frame = visuals.frame;
+                    prepared.frame = Frame::default();
                 };
 
                 prepared.paint(ui)
@@ -375,7 +381,7 @@ impl<'a> Button<'a> {
             AtomLayoutResponse::empty(prepared.response)
         };
 
-        response.widget_info(|| {
+        response.response.widget_info(|| {
             if let Some(text) = &text {
                 WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), text)
             } else {
