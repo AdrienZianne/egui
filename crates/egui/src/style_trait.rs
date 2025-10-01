@@ -124,10 +124,11 @@ pub struct StyleSheet {
     pub border: Stroke,
     pub background: Color32,
     pub transform: TSTransform,
+    pub font: TextFormat,
 }
 
-pub trait StyleEngine<T>: Send + Sync {
-    fn get(&self, ctx: &StyleContext<'_>) -> T;
+pub trait StyleEngine: Send + Sync {
+    fn get(&self, ctx: &StyleContext<'_>) -> StyleSheet;
 }
 
 fn style_id() -> Id {
@@ -141,7 +142,7 @@ pub struct StyleContext<'b> {
 }
 
 impl Context {
-    pub fn set_style_engine<T: 'static>(&self, engine: impl StyleEngine<T> + 'static) {
+    pub fn set_style_engine<T: 'static>(&self, engine: impl StyleEngine + 'static) {
         self.data_mut(|d| {
             d.insert_temp(style_id(), StyleEngineContainer(Arc::new(engine)));
         });
@@ -155,7 +156,7 @@ impl Ui {
         response: &Response,
         classes: &Classes,
     ) -> T {
-        let engine: Option<StyleEngineContainer<T>> = self.data_mut(|d| d.get_temp(style_id()));
+        let engine: Option<StyleEngineContainer> = self.data_mut(|d| d.get_temp(style_id()));
 
         let modifier = if !response.sense.interactive() {
             Modifiers::Disabled
@@ -175,11 +176,14 @@ impl Ui {
 
         if let Some(engine) = engine {
             println!("Engine found");
-            engine.0.get(&StyleContext {
-                ui,
-                classes,
-                modifier,
-            })
+            engine
+                .0
+                .get(&StyleContext {
+                    ui,
+                    classes,
+                    modifier,
+                })
+                .into()
         } else {
             println!("Engine not found");
             ui.style()
@@ -194,7 +198,7 @@ impl Ui {
 }
 
 /// Convert from Style to `StyleEngine`
-impl StyleEngine<StyleSheet> for Style {
+impl StyleEngine for Style {
     fn get(&self, ctx: &StyleContext<'_>) -> StyleSheet {
         let visuals = ctx.ui.ctx().style();
         let modifiers_visuals = match ctx.modifier {
@@ -211,29 +215,29 @@ impl StyleEngine<StyleSheet> for Style {
             Modifiers::Default => visuals.visuals.widgets.inactive,
         };
         StyleSheet {
-            frame: Frame {
-                corner_radius: modifiers_visuals.corner_radius,
-                fill: modifiers_visuals.bg_fill,
-                inner_margin: visuals.spacing.button_padding.into(),
-                outer_margin: 0.into(),
-                stroke: modifiers_visuals.bg_stroke,
-                shadow: Shadow::NONE,
-            },
-            text: TextFormat::simple(
+            background: modifiers_visuals.bg_fill,
+            border: modifiers_visuals.bg_stroke,
+            font: TextFormat::simple(
                 ctx.ui
                     .style()
                     .override_font_id
                     .clone()
                     .unwrap_or(FontId::new(12.0, epaint::FontFamily::Proportional)),
-                ctx.ui.visuals().text_color(),
+                visuals.visuals.text_color(),
             ),
+            padding: Margin::symmetric(
+                visuals.spacing.button_padding.x as i16,
+                visuals.spacing.button_padding.y as i16,
+            ),
+            margin: 0.into(),
+            transform: TSTransform::IDENTITY,
         }
     }
 }
 
-struct StyleEngineContainer<T>(Arc<dyn StyleEngine<T>>);
+struct StyleEngineContainer(Arc<dyn StyleEngine>);
 
-impl<T> Clone for StyleEngineContainer<T> {
+impl Clone for StyleEngineContainer {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }

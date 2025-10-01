@@ -60,13 +60,14 @@ struct ButtonStyle {
     text: TextFormat,
 }
 
-impl StyleSheetT for ButtonStyle {
-    fn set(&mut self, classes: &Classes, modifier: crate::style_trait::Modifiers) {
-        self.frame = Frame {
-            ..Default::default()
-        }
-    }
-}
+// impl StyleSheetT for ButtonStyle {
+//     fn fetch(&mut self, engine) {
+//         self.frame = Frame {
+
+//             ..Default::default()
+//         }
+//     }
+// }
 
 impl From<StyleSheet> for ButtonStyle {
     fn from(value: StyleSheet) -> Self {
