@@ -137,6 +137,8 @@ bitflags::bitflags! {
 
         /// Should this container be closed?
         const CLOSE = 1<<12;
+
+        const OPEN = 1<<12;
     }
 }
 
@@ -377,6 +379,12 @@ impl Response {
     #[inline(always)]
     pub fn dragged(&self) -> bool {
         self.flags.contains(Flags::DRAGGED)
+    }
+
+    /// The widget is opened
+    #[inline(always)]
+    pub fn opened(&self) -> bool {
+        self.flags.contains(Flags::OPEN)
     }
 
     /// See [`Self::dragged`].

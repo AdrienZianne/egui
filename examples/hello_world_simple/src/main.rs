@@ -1,7 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
-use eframe::egui::{self, Button, style_trait::HasClasses};
+use eframe::egui::{
+    self, Button, Color32, Frame, TextFormat,
+    style_trait::{HasClasses, StyleEngine, StyleSheet},
+};
+use hello_world_simple::css_engine::CssEngine;
 
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -16,7 +20,10 @@ fn main() -> eframe::Result {
     let mut age = 42;
 
     eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
-        ctx.set_style_engine(ctx.style());
+        ctx.set_style_engine(CssEngine {});
+        // ctx.style_mut(|s| {
+        //     s.visuals.widgets.active.bg_fill = Color32::RED;
+        // });
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("My egui Application");
             ui.horizontal(|ui| {

@@ -7,7 +7,7 @@ use crate::{
     Atom, AtomExt as _, AtomKind, AtomLayout, AtomLayoutResponse, Color32, CornerRadius, Frame,
     Image, IntoAtoms, NumExt as _, Response, RichText, Sense, Stroke, TextStyle, TextWrapMode, Ui,
     Vec2, Widget, WidgetInfo, WidgetText, WidgetType,
-    style_trait::{Classes, HasClasses, StyleSheet},
+    style_trait::{Classes, HasClasses, StyleSheet, StyleSheetT},
 };
 
 /// Clickable button with text.
@@ -56,14 +56,22 @@ impl HasClasses for Button<'_> {
 
 #[derive(Default)]
 struct ButtonStyle {
-    background_color: Color32,
+    frame: Frame,
     text: TextFormat,
+}
+
+impl StyleSheetT for ButtonStyle {
+    fn set(&mut self, classes: &Classes, modifier: crate::style_trait::Modifiers) {
+        self.frame = Frame {
+            ..Default::default()
+        }
+    }
 }
 
 impl From<StyleSheet> for ButtonStyle {
     fn from(value: StyleSheet) -> Self {
         Self {
-            background_color: value.background,
+            frame: value.frame,
             text: value.text,
         }
     }
@@ -345,7 +353,7 @@ impl<'a> Button<'a> {
             w => w,
         });
 
-        let mut prepared = layout.frame(Frame::default()).min_size(min_size).allocate(ui);
+        let mut prepared = layout.frame(style.frame).min_size(min_size).allocate(ui);
 
         let response = if ui.is_rect_visible(prepared.response.rect) {
             // let visuals = ui.style().interact_selectable(&prepared.response, selected);
@@ -371,7 +379,7 @@ impl<'a> Button<'a> {
                 prepared.fallback_text_color = visuals.text.color;
 
                 if visible_frame {
-                    prepared.frame = Frame::default();
+                    prepared.frame = style.frame;
                 };
 
                 prepared.paint(ui)

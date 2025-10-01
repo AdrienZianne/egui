@@ -1,12 +1,18 @@
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-use epaint::{Color32, FontId, text::TextFormat};
+use emath::TSTransform;
+use epaint::{Color32, FontId, Margin, Shadow, Stroke, text::TextFormat};
 use smallvec::SmallVec;
+use strum_macros::{AsRefStr, EnumString};
 
-use crate::{style::WidgetVisuals, Context, Id, Response, Style, Ui};
+use crate::{Context, Frame, Id, Response, Style, Ui, style::WidgetVisuals};
 
 pub(crate) const CLASSES_SMALL_VEC_SIZE: usize = 5;
 
+/// Small list of classes
 #[derive(Debug, Clone, Default)]
 pub struct Classes(SmallVec<[Classe; CLASSES_SMALL_VEC_SIZE]>);
 
@@ -25,12 +31,14 @@ impl Classes {
     }
 }
 
+/// Classes are divided in 2 : The built-in classes and the custom one
 #[derive(Debug, Clone)]
 pub enum Classe {
     Button,
     Custom(String),
 }
 
+/// Widget implementing this trait have classes, allowing better customization
 pub trait HasClasses {
     fn classes(&self) -> &Classes;
 
@@ -63,48 +71,63 @@ pub trait HasClasses {
     }
 }
 
+/// Allow the use of the str instead of enum
 impl From<&str> for Classe {
     #[inline]
     fn from(class: &str) -> Self {
-        Self::Custom(class.to_owned())
+        match class {
+            "button" => Self::Button,
+            _ => Self::Custom(class.to_owned()),
+        }
     }
+}
+
+/// Modifier is the state of the widget, and the style that need to be used consequently
+#[derive(Default, PartialEq, Eq, Debug)]
+pub enum Modifiers {
+    #[default]
+    Default,
+    Selected,
+    Enabled,
+    Disabled,
+    Hover,
+    Active,
+    Open,
+    Focus,
+}
+
+pub struct Properties {
+    properties: HashMap<Classe, HashSet<Property>>,
+}
+
+impl Properties {
+    fn new() -> Self {
+        Self {
+            properties: HashMap::new(),
+        }
+    }
+}
+
+// Enum of the properties available
+#[derive(AsRefStr, EnumString)]
+pub enum Property {
+    Margin(Margin),
+    Padding(Margin),
+    Border(Stroke),
+    Background(Color32),
+    Transform(TSTransform),
 }
 
 pub struct StyleSheet {
+    pub margin: Margin,
+    pub padding: Margin,
+    pub border: Stroke,
     pub background: Color32,
-    pub text: TextFormat,
-}
-
-impl From<Style> for StyleSheet {
-    fn from(value: Style) -> Self {
-        StyleSheet {
-            background: value.visuals.widgets.inactive.bg_fill,
-            text: TextFormat::simple(
-                value
-                    .override_font_id
-                    .unwrap_or(FontId::new(12.0, epaint::FontFamily::Proportional)),
-                value.visuals.text_color(),
-            ),
-        }
-    }
-}
-
-impl From<&Arc<Style>> for StyleSheet {
-    fn from(value: &Arc<Style>) -> Self {
-        StyleSheet {
-            background: value.visuals.widgets.inactive.bg_fill,
-            text: TextFormat::simple(
-                value
-                    .override_font_id.clone()
-                    .unwrap_or(FontId::new(12.0, epaint::FontFamily::Proportional)),
-                value.visuals.text_color(),
-            ),
-        }
-    }
+    pub transform: TSTransform,
 }
 
 pub trait StyleEngine<T>: Send + Sync {
-    fn get(&self, ctx: &StyleContext) -> T;
+    fn get(&self, ctx: &StyleContext<'_>) -> T;
 }
 
 fn style_id() -> Id {
@@ -114,7 +137,7 @@ fn style_id() -> Id {
 pub struct StyleContext<'b> {
     pub ui: &'b Ui,
     pub classes: &'b Classes,
-    pub response: &'b Response,
+    pub modifier: Modifiers,
 }
 
 impl Context {
@@ -126,26 +149,85 @@ impl Context {
 }
 
 impl Ui {
-    pub fn widget_style<T: 'static>(&self, ui: &Ui, response: &Response, classes: &Classes) -> T {
-        let engine: StyleEngineContainer<T> = self.data_mut(|d| {
-            d.get_temp(style_id()).expect("Uh")
-        });
+    pub fn widget_style<T: 'static + From<StyleSheet>>(
+        &self,
+        ui: &Self,
+        response: &Response,
+        classes: &Classes,
+    ) -> T {
+        let engine: Option<StyleEngineContainer<T>> = self.data_mut(|d| d.get_temp(style_id()));
 
-        engine.0.get(&StyleContext {
-            ui, classes, response
-        })
+        let modifier = if !response.sense.interactive() {
+            Modifiers::Disabled
+        } else if response.is_pointer_button_down_on() || response.clicked() {
+            Modifiers::Active
+        } else if response.has_focus() {
+            Modifiers::Focus
+        } else if response.hovered() {
+            Modifiers::Hover
+        } else if response.highlighted() {
+            Modifiers::Selected
+        } else if response.opened() {
+            Modifiers::Open
+        } else {
+            Modifiers::Default
+        };
+
+        if let Some(engine) = engine {
+            println!("Engine found");
+            engine.0.get(&StyleContext {
+                ui,
+                classes,
+                modifier,
+            })
+        } else {
+            println!("Engine not found");
+            ui.style()
+                .get(&StyleContext {
+                    ui,
+                    classes,
+                    modifier,
+                })
+                .into()
+        }
     }
 }
 
+/// Convert from Style to `StyleEngine`
 impl StyleEngine<StyleSheet> for Style {
-    fn get(&self, ctx: &StyleContext) -> StyleSheet {
-        ctx.ui.style().into()
-    }
-}
-
-impl StyleEngine<StyleSheet> for Arc<Style> {
-    fn get(&self, ctx: &StyleContext) -> StyleSheet {
-        ctx.ui.style().into()
+    fn get(&self, ctx: &StyleContext<'_>) -> StyleSheet {
+        let visuals = ctx.ui.ctx().style();
+        let modifiers_visuals = match ctx.modifier {
+            Modifiers::Disabled => visuals.visuals.widgets.noninteractive,
+            Modifiers::Hover => visuals.visuals.widgets.hovered,
+            Modifiers::Active => visuals.visuals.widgets.active,
+            Modifiers::Enabled | Modifiers::Open => visuals.visuals.widgets.open,
+            Modifiers::Selected | Modifiers::Focus => WidgetVisuals {
+                bg_fill: visuals.visuals.selection.bg_fill,
+                bg_stroke: visuals.visuals.selection.stroke,
+                weak_bg_fill: visuals.visuals.selection.bg_fill,
+                ..visuals.visuals.widgets.inactive
+            },
+            Modifiers::Default => visuals.visuals.widgets.inactive,
+        };
+        StyleSheet {
+            frame: Frame {
+                corner_radius: modifiers_visuals.corner_radius,
+                fill: modifiers_visuals.bg_fill,
+                inner_margin: visuals.spacing.button_padding.into(),
+                outer_margin: 0.into(),
+                stroke: modifiers_visuals.bg_stroke,
+                shadow: Shadow::NONE,
+            },
+            text: TextFormat::simple(
+                ctx.ui
+                    .style()
+                    .override_font_id
+                    .clone()
+                    .unwrap_or(FontId::new(12.0, epaint::FontFamily::Proportional)),
+                ctx.ui.visuals().text_color(),
+            ),
+        }
     }
 }
 
@@ -153,6 +235,10 @@ struct StyleEngineContainer<T>(Arc<dyn StyleEngine<T>>);
 
 impl<T> Clone for StyleEngineContainer<T> {
     fn clone(&self) -> Self {
-        StyleEngineContainer(self.0.clone())
+        Self(self.0.clone())
     }
+}
+
+pub trait StyleSheetT {
+    fn set(&mut self, engine: impl StyleEngine);
 }

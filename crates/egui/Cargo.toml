@@ -89,6 +89,8 @@ nohash-hasher.workspace = true
 profiling.workspace = true
 smallvec.workspace = true
 unicode-segmentation.workspace = true
+strum.workspace = true
+strum_macros.workspace = true
 
 #! ### Optional dependencies
 accesskit = { workspace = true, optional = true }
