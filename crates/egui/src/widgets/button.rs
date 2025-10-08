@@ -1,13 +1,13 @@
 use std::{mem, sync::Arc};
 
 use emath::TSTransform;
-use epaint::text::TextFormat;
+use epaint::{Shadow, text::TextFormat};
 
 use crate::{
     Atom, AtomExt as _, AtomKind, AtomLayout, AtomLayoutResponse, Color32, CornerRadius, Frame,
     Image, IntoAtoms, NumExt as _, Response, RichText, Sense, Stroke, TextStyle, TextWrapMode, Ui,
     Vec2, Widget, WidgetInfo, WidgetText, WidgetType,
-    style_trait::{Classes, HasClasses, StyleSheet, StyleSheetT},
+    style_trait::{Modifiers, HasClasses, StyleSheet, StyleSheetT},
 };
 
 /// Clickable button with text.
@@ -41,15 +41,15 @@ pub struct Button<'a> {
     selected: bool,
     image_tint_follows_text_color: bool,
     limit_image_size: bool,
-    classes: Classes,
+    classes: Modifiers,
 }
 
 impl HasClasses for Button<'_> {
-    fn classes(&self) -> &crate::style_trait::Classes {
+    fn classes(&self) -> &crate::style_trait::Modifiers {
         &self.classes
     }
 
-    fn classes_mut(&mut self) -> &mut crate::style_trait::Classes {
+    fn classes_mut(&mut self) -> &mut crate::style_trait::Modifiers {
         &mut self.classes
     }
 }
@@ -60,20 +60,18 @@ struct ButtonStyle {
     text: TextFormat,
 }
 
-// impl StyleSheetT for ButtonStyle {
-//     fn fetch(&mut self, engine) {
-//         self.frame = Frame {
-
-//             ..Default::default()
-//         }
-//     }
-// }
-
 impl From<StyleSheet> for ButtonStyle {
     fn from(value: StyleSheet) -> Self {
         Self {
-            frame: value.frame,
-            text: value.text,
+            frame: Frame {
+                fill: value.background,
+                inner_margin: value.padding,
+                outer_margin: value.margin,
+                stroke: value.border,
+                corner_radius: 0.into(),
+                shadow: Shadow::NONE,
+            },
+            text: value.font,
         }
     }
 }
@@ -94,7 +92,7 @@ impl<'a> Button<'a> {
             selected: false,
             image_tint_follows_text_color: false,
             limit_image_size: false,
-            classes: Classes::default(),
+            classes: Modifiers::default(),
         }
     }
 

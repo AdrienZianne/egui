@@ -686,6 +686,7 @@ impl ScrollArea {
 
         let id_salt = id_salt.unwrap_or_else(|| Id::new("scroll_area"));
         let id = ui.make_persistent_id(id_salt);
+        println!("{id:?} {:?} {:?}", ui.id().with(id_salt), id_salt);
         ctx.check_for_id_clash(
             id,
             Rect::from_min_size(ui.available_rect_before_wrap().min, Vec2::ZERO),
@@ -872,6 +873,7 @@ impl ScrollArea {
             .ctx()
             .pass_state_mut(|state| std::mem::take(&mut state.scroll_target));
 
+        println!("{id:?}");
         Prepared {
             id,
             state,
@@ -969,9 +971,24 @@ impl ScrollArea {
         ui: &mut Ui,
         add_contents: Box<dyn FnOnce(&mut Ui, Rect) -> R + 'c>,
     ) -> ScrollAreaOutput<R> {
+        println!("raaah {:?}", ui.id());
         let mut prepared = self.begin(ui);
         let id = prepared.id;
+
         let inner_rect = prepared.inner_rect;
+        let content_response_option = prepared
+            .state
+            .interact_rect
+            .map(|rect| ui.interact(rect, id.with("area"), Sense::drag()));
+        println!(
+            "{} {:?} {:?} {:?}",
+            content_response_option
+                .as_ref()
+                .is_some_and(|res| res.dragged()),
+            prepared.state.interact_rect,
+            id,
+            id.with("area"),
+        );
         let inner = add_contents(&mut prepared.content_ui, prepared.viewport);
         let (content_size, state) = prepared.end(ui);
         ScrollAreaOutput {

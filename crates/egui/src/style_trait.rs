@@ -1,52 +1,87 @@
 use std::{
     collections::{HashMap, HashSet},
+    hash::Hash,
     sync::Arc,
 };
 
 use emath::TSTransform;
-use epaint::{Color32, FontId, Margin, Shadow, Stroke, text::TextFormat};
+use epaint::{Color32, Margin, Stroke};
 use smallvec::SmallVec;
 use strum_macros::{AsRefStr, EnumString};
 
-use crate::{Context, Frame, Id, Response, Style, Ui, style::WidgetVisuals};
+use crate::{Context, Id, Response, Style, Ui, style::WidgetVisuals};
 
 pub(crate) const CLASSES_SMALL_VEC_SIZE: usize = 5;
 
 /// Small list of classes
 #[derive(Debug, Clone, Default)]
-pub struct Classes(SmallVec<[Classe; CLASSES_SMALL_VEC_SIZE]>);
+pub struct Modifiers(pub SmallVec<[StyleModifier; CLASSES_SMALL_VEC_SIZE]>);
 
-impl Classes {
-    pub fn with_if(mut self, class: Classe, condition: bool) -> Self {
+impl Modifiers {
+    pub fn with_if(mut self, class: StyleModifier, condition: bool) -> Self {
         if condition {
             self.0.push(class);
         }
         self
     }
 
-    pub fn add_if(&mut self, class: Classe, condition: bool) {
+    pub fn add_if(&mut self, class: StyleModifier, condition: bool) {
         if condition {
             self.0.push(class);
         }
     }
 }
 
-/// Classes are divided in 2 : The built-in classes and the custom one
-#[derive(Debug, Clone)]
-pub enum Classe {
+/// Similar to selector in CSS
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StyleModifier {
+    // Type selector, for global change to widgets
     Button,
-    Custom(String),
+    Checkbox,
+    Label,
+    // Class selector, for custom change to some widgets
+    Class(String),
+    // Could add ID ?
+}
+
+/// From the proposition of #7586
+#[derive(Default, Hash, PartialEq, Eq)]
+pub enum WidgetState {
+    /// This type of widget cannot be interacted with
+    Noninteractive,
+
+    /// An interactive widget that is not being interacted with²
+    #[default]
+    Inactive,
+
+    /// An interactive widget that is being hovered
+    Hovered,
+
+    /// An interactive widget that is being clicked or dragged
+    Active,
+}
+
+/// Allow the identification of the selectors and modifiers
+#[derive(Hash, PartialEq, Eq)]
+struct Selector {
+    selector: StyleModifier,
+    state: WidgetState,
+}
+
+/// The central struct
+struct StyleSheet {
+    styles: HashMap<Selector, HashSet<Property>>,
 }
 
 /// Widget implementing this trait have classes, allowing better customization
 pub trait HasClasses {
-    fn classes(&self) -> &Classes;
+    fn classes(&self) -> &Modifiers;
 
-    fn classes_mut(&mut self) -> &mut Classes;
+    fn classes_mut(&mut self) -> &mut Modifiers;
 
     fn add_class<T>(&mut self, class: T) -> &Self
     where
-        T: Into<Classe>,
+        T: Into<StyleModifier>,
     {
         self.classes_mut().add_if(class.into(), true);
         self
@@ -55,7 +90,7 @@ pub trait HasClasses {
     fn with_class<T>(mut self, class: T) -> Self
     where
         Self: Sized,
-        T: Into<Classe>,
+        T: Into<StyleModifier>,
     {
         self.classes_mut().add_if(class.into(), true);
         self
@@ -64,7 +99,7 @@ pub trait HasClasses {
     fn with_class_if<T>(mut self, class: T, condition: bool) -> Self
     where
         Self: Sized,
-        T: Into<Classe>,
+        T: Into<StyleModifier>,
     {
         self.classes_mut().add_if(class.into(), condition);
         self
@@ -72,32 +107,32 @@ pub trait HasClasses {
 }
 
 /// Allow the use of the str instead of enum
-impl From<&str> for Classe {
+impl From<&str> for StyleModifier {
     #[inline]
     fn from(class: &str) -> Self {
         match class {
             "button" => Self::Button,
-            _ => Self::Custom(class.to_owned()),
+            "checkbox" => Self::Checkbox,
+            "label" => Self::Label,
+            _ => Self::Class(class.to_owned()),
         }
     }
 }
 
-/// Modifier is the state of the widget, and the style that need to be used consequently
-#[derive(Default, PartialEq, Eq, Debug)]
-pub enum Modifiers {
-    #[default]
-    Default,
-    Selected,
-    Enabled,
-    Disabled,
-    Hover,
-    Active,
-    Open,
-    Focus,
-}
+// Allow the use of the str instead of enum
+// impl From<&[str]> for Classes {
+//     #[inline]
+//     fn from(classes: &[Classe]) -> Self {
+//         let mut c = Self::default();
+//         for class in classes {
+//             c.add_if(class.clone(), true);
+//         }
+//         c
+//     }
+//}
 
 pub struct Properties {
-    properties: HashMap<Classe, HashSet<Property>>,
+    properties: HashMap<StyleModifier, HashSet<Property>>,
 }
 
 impl Properties {
@@ -109,7 +144,7 @@ impl Properties {
 }
 
 // Enum of the properties available
-#[derive(AsRefStr, EnumString)]
+#[derive(AsRefStr, EnumString, PartialEq, Clone, Copy)]
 pub enum Property {
     Margin(Margin),
     Padding(Margin),
@@ -118,13 +153,11 @@ pub enum Property {
     Transform(TSTransform),
 }
 
-pub struct StyleSheet {
-    pub margin: Margin,
-    pub padding: Margin,
-    pub border: Stroke,
-    pub background: Color32,
-    pub transform: TSTransform,
-    pub font: TextFormat,
+impl Eq for Property {}
+impl Hash for Property {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+    }
 }
 
 pub trait StyleEngine: Send + Sync {
@@ -137,12 +170,12 @@ fn style_id() -> Id {
 
 pub struct StyleContext<'b> {
     pub ui: &'b Ui,
-    pub classes: &'b Classes,
-    pub modifier: Modifiers,
+    pub classes: &'b Modifiers,
+    pub modifier: &'b Modifiers,
 }
 
 impl Context {
-    pub fn set_style_engine<T: 'static>(&self, engine: impl StyleEngine + 'static) {
+    pub fn set_style_engine(&self, engine: impl StyleEngine + 'static) {
         self.data_mut(|d| {
             d.insert_temp(style_id(), StyleEngineContainer(Arc::new(engine)));
         });
@@ -154,7 +187,7 @@ impl Ui {
         &self,
         ui: &Self,
         response: &Response,
-        classes: &Classes,
+        classes: &Modifiers,
     ) -> T {
         let engine: Option<StyleEngineContainer> = self.data_mut(|d| d.get_temp(style_id()));
 
@@ -175,22 +208,20 @@ impl Ui {
         };
 
         if let Some(engine) = engine {
-            println!("Engine found");
             engine
                 .0
                 .get(&StyleContext {
                     ui,
                     classes,
-                    modifier,
+                    modifier: &modifier,
                 })
                 .into()
         } else {
-            println!("Engine not found");
             ui.style()
                 .get(&StyleContext {
                     ui,
                     classes,
-                    modifier,
+                    modifier: &modifier,
                 })
                 .into()
         }
@@ -214,24 +245,6 @@ impl StyleEngine for Style {
             },
             Modifiers::Default => visuals.visuals.widgets.inactive,
         };
-        StyleSheet {
-            background: modifiers_visuals.bg_fill,
-            border: modifiers_visuals.bg_stroke,
-            font: TextFormat::simple(
-                ctx.ui
-                    .style()
-                    .override_font_id
-                    .clone()
-                    .unwrap_or(FontId::new(12.0, epaint::FontFamily::Proportional)),
-                visuals.visuals.text_color(),
-            ),
-            padding: Margin::symmetric(
-                visuals.spacing.button_padding.x as i16,
-                visuals.spacing.button_padding.y as i16,
-            ),
-            margin: 0.into(),
-            transform: TSTransform::IDENTITY,
-        }
     }
 }
 
