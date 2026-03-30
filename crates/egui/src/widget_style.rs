@@ -5,7 +5,7 @@ use epaint::{Color32, FontId, Shadow, Stroke, text::TextWrapMode};
 use smallvec::SmallVec;
 
 use crate::{
-    Frame, Response, Style, TextBuffer as _, TextStyle,
+    Frame, Plugin, Response, Style, TextBuffer as _, TextStyle, Ui,
     style::{WidgetVisuals, Widgets},
 };
 
@@ -115,9 +115,58 @@ impl Response {
     }
 }
 
+pub trait ThemePlugin: Plugin {
+    /// The style according to the classes and state of the widget
+    fn widget_style(
+        &self,
+        _classes: &Classes,
+        state: WidgetState,
+        base: WidgetStyle,
+    ) -> WidgetStyle;
+}
+
+impl Ui {
+    pub fn widget_style(&self, id: crate::Id, classes: &Classes) -> WidgetStyle {
+        let state = self
+            .ctx()
+            .read_response(id)
+            .map(|r| r.widget_state())
+            .unwrap_or_default();
+
+        let visuals = self.style().visuals.widgets.state(state);
+        let font_id = self.style().override_font_id.clone();
+        let base = WidgetStyle {
+            frame: Frame {
+                fill: visuals.bg_fill,
+                stroke: visuals.bg_stroke,
+                corner_radius: visuals.corner_radius,
+                inner_margin: self.style().spacing.button_padding.into(),
+                ..Default::default()
+            },
+            stroke: visuals.fg_stroke,
+            text: TextVisuals {
+                color: self
+                    .style()
+                    .visuals
+                    .override_text_color
+                    .unwrap_or_else(|| visuals.text_color()),
+                font_id: font_id.unwrap_or_else(|| TextStyle::Body.resolve(self.style())),
+                strikethrough: Stroke::NONE,
+                underline: Stroke::NONE,
+            },
+        };
+
+        let x = self.ctx().plugin_opt::<CustomThemePlugin>();
+        if let Some(v) = x {
+            v.lock().widget_style(classes, state, base)
+        } else {
+            base
+        }
+    }
+}
+
 impl Style {
-    /// The general widget style. The style is computed according to the classes and state of the widget.
-    pub fn widget_style(&self, _classes: &Classes, state: WidgetState) -> WidgetStyle {
+    pub fn widget_style(&self, classes: &Classes, state: WidgetState) -> WidgetStyle {
         let visuals = self.visuals.widgets.state(state);
         let font_id = self.override_font_id.clone();
         WidgetStyle {
