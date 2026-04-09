@@ -793,7 +793,7 @@ impl Context {
         let plugins = self.read(|ctx| ctx.plugins.ordered_plugins());
         #[expect(deprecated)]
         self.run(new_input, |ctx| {
-            let mut top_ui = Ui::new(
+            let mut root_ui = Ui::new(
                 ctx.clone(),
                 Id::new((ctx.viewport_id(), "__top_ui")),
                 UiBuilder::new()
@@ -802,14 +802,15 @@ impl Context {
             );
 
             {
-                plugins.on_begin_pass(&mut top_ui);
-                run_ui(&mut top_ui);
-                plugins.on_end_pass(&mut top_ui);
+                plugins.on_begin_pass(&mut root_ui);
+                run_ui(&mut root_ui);
+                plugins.on_end_pass(&mut root_ui);
             }
 
-            // Inform ctx about what we actually used, so we can shrink the native window to fit.
-            // TODO(emilk): make better use of this somehow
-            ctx.pass_state_mut(|state| state.allocate_central_panel(top_ui.min_rect()));
+            ctx.pass_state_mut(|state| {
+                state.root_ui_available_rect = Some(root_ui.available_rect_before_wrap());
+                state.root_ui_min_rect = Some(root_ui.min_rect());
+            });
         })
     }
 
@@ -1360,6 +1361,7 @@ impl Context {
 
         let WidgetRect {
             id,
+            parent_id: _,
             layer_id,
             rect,
             interact_rect,
@@ -1378,8 +1380,8 @@ impl Context {
             interact_rect,
             sense,
             flags: Flags::empty(),
-            interact_pointer_pos: None,
-            intrinsic_size: None,
+            interact_pointer_pos_or_nan: Pos2::NAN,
+            intrinsic_size_or_nan: Vec2::NAN,
         };
 
         res.flags.set(Flags::ENABLED, enabled);
@@ -1470,14 +1472,11 @@ impl Context {
                 || res.long_touched()
                 || clicked
                 || res.drag_stopped();
-            if is_interacted_with {
-                res.interact_pointer_pos = input.pointer.interact_pos();
-                if let (Some(to_global), Some(pos)) = (
-                    memory.to_global.get(&res.layer_id),
-                    &mut res.interact_pointer_pos,
-                ) {
-                    *pos = to_global.inverse() * *pos;
+            if is_interacted_with && let Some(mut pos) = input.pointer.interact_pos() {
+                if let Some(to_global) = memory.to_global.get(&res.layer_id) {
+                    pos = to_global.inverse() * pos;
                 }
+                res.interact_pointer_pos_or_nan = pos;
             }
 
             if input.pointer.any_down() && !is_interacted_with {
@@ -1545,6 +1544,11 @@ impl Context {
     #[track_caller]
     pub fn debug_text(&self, text: impl Into<WidgetText>) {
         crate::debug_text::print(self, text);
+    }
+
+    /// Current time in seconds, relative to some unknown epoch.
+    pub fn time(&self) -> f64 {
+        self.input(|i| i.time)
     }
 
     /// What operating system are we running on?
@@ -1935,7 +1939,7 @@ impl Context {
     }
 }
 
-/// Callbacks
+/// Plugins
 impl Context {
     /// Call the given callback at the start of each pass of each viewport.
     ///
@@ -2397,6 +2401,12 @@ impl Context {
             crate::gui_zoom::zoom_with_keyboard(self);
         }
 
+        for shortcut in self.options(|o| o.quit_shortcuts.clone()) {
+            if self.input_mut(|i| i.consume_shortcut(&shortcut)) {
+                self.send_viewport_cmd(ViewportCommand::Close);
+            }
+        }
+
         #[cfg(debug_assertions)]
         self.debug_painting();
 
@@ -2419,6 +2429,7 @@ impl Context {
     #[cfg(debug_assertions)]
     fn debug_painting(&self) {
         #![expect(clippy::iter_over_hash_type)] // ok to be sloppy in debug painting
+        use std::fmt::Write as _;
 
         let paint_widget = |widget: &WidgetRect, text: &str, color: Color32| {
             let rect = widget.interact_rect;
@@ -2491,13 +2502,17 @@ impl Context {
                     for id in contains_pointer {
                         let mut widget_text = format!("{id:?}");
                         if let Some(rect) = widget_rects.get(id) {
-                            widget_text +=
-                                &format!(" {:?} {:?} {:?}", rect.layer_id, rect.rect, rect.sense);
+                            write!(
+                                widget_text,
+                                " {:?} {:?} {:?}",
+                                rect.layer_id, rect.rect, rect.sense
+                            )
+                            .ok();
                         }
                         if let Some(info) = widget_rects.info(id) {
-                            widget_text += &format!(" {info:?}");
+                            write!(widget_text, " {info:?}").ok();
                         }
-                        debug_text += &format!("{widget_text}\n");
+                        writeln!(debug_text, "{widget_text}").ok();
                     }
                     self.debug_text(debug_text);
                 }
@@ -2562,7 +2577,7 @@ impl Context {
             );
             self.viewport(|vp| {
                 for reason in &vp.output.request_discard_reasons {
-                    warning += &format!("\n  {reason}");
+                    write!(warning, "\n  {reason}").ok();
                 }
             });
 
@@ -2596,6 +2611,12 @@ impl ContextImpl {
         let textures_delta = self.tex_manager.0.write().take_delta();
 
         let mut platform_output: PlatformOutput = std::mem::take(&mut viewport.output);
+
+        if self.memory.should_interrupt_ime()
+            && let Some(ime) = &mut platform_output.ime
+        {
+            ime.should_interrupt_composition = true;
+        }
 
         {
             profiling::scope!("accesskit");
@@ -2635,6 +2656,19 @@ impl ContextImpl {
                 repaint_needed = true; // Some widget has moved
             }
         }
+
+        #[cfg(debug_assertions)]
+        let shapes = if self.memory.options.style().debug.warn_if_rect_changes_id {
+            let mut shapes = shapes;
+            warn_if_rect_changes_id(
+                &mut shapes,
+                &viewport.prev_pass.widgets,
+                &viewport.this_pass.widgets,
+            );
+            shapes
+        } else {
+            shapes
+        };
 
         std::mem::swap(&mut viewport.prev_pass, &mut viewport.this_pass);
 
@@ -2826,13 +2860,21 @@ impl Context {
     /// How much space is still available after panels have been added.
     #[deprecated = "Use content_rect (or viewport_rect) instead"]
     pub fn available_rect(&self) -> Rect {
+        #[expect(deprecated)] // legacy
         self.pass_state(|s| s.available_rect()).round_ui()
     }
 
     /// How much space is used by windows and the top-level [`Ui`].
     pub fn globally_used_rect(&self) -> Rect {
         self.write(|ctx| {
-            let mut used = ctx.viewport().this_pass.used_by_panels;
+            let viewport = ctx.viewport();
+            let root_ui_min_rect =
+                (viewport.this_pass.root_ui_min_rect).or(viewport.prev_pass.root_ui_min_rect);
+
+            let mut used = root_ui_min_rect.unwrap_or_else(|| {
+                #[expect(deprecated)] // legacy
+                ctx.viewport().this_pass.used_by_panels
+            });
             for (_id, window) in ctx.memory.areas().visible_windows() {
                 used |= window.rect();
             }
@@ -2859,18 +2901,27 @@ impl Context {
     /// Is the pointer (mouse/touch) over any egui area?
     pub fn is_pointer_over_egui(&self) -> bool {
         let pointer_pos = self.input(|i| i.pointer.interact_pos());
-        if let Some(pointer_pos) = pointer_pos {
-            if let Some(layer) = self.layer_id_at(pointer_pos) {
-                if layer.order == Order::Background {
-                    !self.pass_state(|state| state.unused_rect.contains(pointer_pos))
-                } else {
-                    true
-                }
+        let Some(pointer_pos) = pointer_pos else {
+            return false;
+        };
+        let Some(layer) = self.layer_id_at(pointer_pos) else {
+            return false;
+        };
+        if layer.order == Order::Background {
+            let root_ui_available_rect = self
+                .pass_state(|state| state.root_ui_available_rect)
+                .or_else(|| self.prev_pass_state(|state| state.root_ui_available_rect));
+
+            if let Some(root_ui_available_rect) = root_ui_available_rect {
+                // Modern `run_ui` code
+                !root_ui_available_rect.contains(pointer_pos)
             } else {
-                false
+                // Legacy code
+                #[expect(deprecated)]
+                !self.pass_state(|state| state.unused_rect.contains(pointer_pos))
             }
         } else {
-            false
+            true
         }
     }
 
@@ -2926,6 +2977,15 @@ impl Context {
     #[deprecated = "Renamed to egui_wants_keyboard_input"]
     pub fn wants_keyboard_input(&self) -> bool {
         self.egui_wants_keyboard_input()
+    }
+
+    /// Is the currently focused widget a text edit?
+    pub fn text_edit_focused(&self) -> bool {
+        if let Some(id) = self.memory(|mem| mem.focused()) {
+            crate::text_edit::TextEditState::load(self, id).is_some()
+        } else {
+            false
+        }
     }
 
     /// Highlight this widget, to make it look like it is hovered, even if it isn't.
@@ -4235,6 +4295,112 @@ impl Context {
 fn context_impl_send_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Context>();
+}
+
+/// Check if any [`Rect`] appears with different [`Id`]s between two passes.
+///
+/// This helps detect cases where the same screen area is claimed by different widget ids
+/// across passes, which is often a sign of id instability.
+#[cfg(debug_assertions)]
+fn warn_if_rect_changes_id(
+    out_shapes: &mut Vec<ClippedShape>,
+    prev_widgets: &crate::WidgetRects,
+    new_widgets: &crate::WidgetRects,
+) {
+    profiling::function_scope!();
+
+    use std::collections::BTreeMap;
+
+    /// A wrapper around [`Rect`] that implements [`Ord`] using the bit representation of its floats.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    struct OrderedRect(Rect);
+
+    impl PartialOrd for OrderedRect {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl Ord for OrderedRect {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            let lhs = self.0;
+            let rhs = other.0;
+            lhs.min
+                .x
+                .to_bits()
+                .cmp(&rhs.min.x.to_bits())
+                .then(lhs.min.y.to_bits().cmp(&rhs.min.y.to_bits()))
+                .then(lhs.max.x.to_bits().cmp(&rhs.max.x.to_bits()))
+                .then(lhs.max.y.to_bits().cmp(&rhs.max.y.to_bits()))
+        }
+    }
+
+    fn create_lookup<'a>(
+        widgets: impl Iterator<Item = &'a WidgetRect>,
+    ) -> BTreeMap<OrderedRect, Vec<&'a WidgetRect>> {
+        let mut lookup: BTreeMap<OrderedRect, Vec<&'a WidgetRect>> = BTreeMap::default();
+        for w in widgets {
+            lookup.entry(OrderedRect(w.rect)).or_default().push(w);
+        }
+        lookup
+    }
+
+    for (layer_id, new_layer_widgets) in new_widgets.layers() {
+        let prev = create_lookup(prev_widgets.get_layer(*layer_id));
+        let new = create_lookup(new_layer_widgets.iter());
+
+        for (hashable_rect, new_at_rect) in new {
+            let Some(prev_at_rect) = prev.get(&hashable_rect) else {
+                continue; // this rect did not exist in the previous pass
+            };
+
+            if prev_at_rect
+                .iter()
+                .any(|w| new_at_rect.iter().any(|nw| nw.id == w.id))
+            {
+                continue; // at least one id stayed the same, so this is not an id change
+            }
+
+            // Only warn if at least one of the previous ids is gone from this layer entirely.
+            // If they all still exist (just at a different rect), then the rect match
+            // is just a coincidence caused by widgets shifting (e.g. a window being dragged).
+            if prev_at_rect.iter().all(|w| new_widgets.contains(w.id)) {
+                continue;
+            }
+
+            // Only warn if at least one widget has the same parent_id in both frames.
+            // If all parent_ids changed too, this is a cascading id shift, not a widget bug.
+            if !prev_at_rect
+                .iter()
+                .any(|pw| new_at_rect.iter().any(|nw| nw.parent_id == pw.parent_id))
+            {
+                continue;
+            }
+
+            let rect = new_at_rect[0].rect;
+
+            log::warn!(
+                "Widget rect {rect:?} changed id between passes: prev ids: {:?}, new ids: {:?}",
+                prev_at_rect
+                    .iter()
+                    .map(|w| w.id.short_debug_format())
+                    .collect::<Vec<_>>(),
+                new_at_rect
+                    .iter()
+                    .map(|w| w.id.short_debug_format())
+                    .collect::<Vec<_>>(),
+            );
+            out_shapes.push(ClippedShape {
+                clip_rect: Rect::EVERYTHING,
+                shape: epaint::Shape::rect_stroke(
+                    rect,
+                    0,
+                    (2.0, Color32::RED),
+                    StrokeKind::Outside,
+                ),
+            });
+        }
+    }
 }
 
 #[cfg(test)]

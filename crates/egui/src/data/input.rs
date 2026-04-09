@@ -376,12 +376,14 @@ impl ViewportInfo {
             ui.label(opt_as_str(&visible));
             ui.end_row();
 
+            #[expect(clippy::ref_option)]
             fn opt_rect_as_string(v: &Option<Rect>) -> String {
                 v.as_ref().map_or(String::new(), |r| {
                     format!("Pos: {:?}, size: {:?}", r.min, r.size())
                 })
             }
 
+            #[expect(clippy::ref_option)]
             fn opt_as_str<T: std::fmt::Debug>(v: &Option<T>) -> String {
                 v.as_ref().map_or(String::new(), |v| format!("{v:?}"))
             }
@@ -441,6 +443,10 @@ pub enum Event {
     Text(String),
 
     /// A key was pressed or released.
+    ///
+    /// ## Note for integration authors
+    ///
+    /// Key events that has been processed by IMEs should not be sent to `egui`.
     Key {
         /// Most of the time, it's the logical key, heeding the active keymap -- for instance, if the user has Dvorak
         /// keyboard layout, it will be taken into account.
@@ -599,15 +605,22 @@ pub enum Event {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ImeEvent {
     /// Notifies when the IME was enabled.
+    #[deprecated = "No longer used by egui"]
     Enabled,
 
     /// A new IME candidate is being suggested.
+    ///
+    /// An empty preedit string indicates that the IME has been dismissed, while
+    /// a non-empty preedit string indicates that the IME is active.
     Preedit(String),
 
     /// IME composition ended with this final result.
+    ///
+    /// The IME is considered dismissed after this event.
     Commit(String),
 
     /// Notifies when the IME was disabled.
+    #[deprecated = "No longer used by egui"]
     Disabled,
 }
 

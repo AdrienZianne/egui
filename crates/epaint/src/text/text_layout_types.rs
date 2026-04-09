@@ -1047,7 +1047,7 @@ impl Galley {
             return self.end_pos();
         };
 
-        let x = row.x_offset(layout_cursor.column);
+        let x = row.x_offset(layout_cursor.column) + row.pos.x;
         Rect::from_min_max(pos2(x, row.min_y()), pos2(x, row.max_y()))
     }
 

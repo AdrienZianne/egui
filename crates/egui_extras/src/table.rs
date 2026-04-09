@@ -656,14 +656,13 @@ impl TableState {
     }
 
     fn store(self, ui: &egui::Ui, state_id: egui::Id) {
-        #![expect(clippy::needless_return)]
         #[cfg(feature = "serde")]
         {
-            return ui.data_mut(|d| d.insert_persisted(state_id, self));
+            ui.data_mut(|d| d.insert_persisted(state_id, self));
         }
         #[cfg(not(feature = "serde"))]
         {
-            return ui.data_mut(|d| d.insert_temp(state_id, self));
+            ui.data_mut(|d| d.insert_temp(state_id, self));
         }
     }
 
@@ -997,7 +996,7 @@ impl<'a> TableBody<'a> {
             overline: false,
             response: &mut response,
         });
-        self.capture_hover_state(&response, self.row_index);
+        self.capture_hover_state(response.as_ref(), self.row_index);
         let bottom_y = self.layout.cursor.y;
 
         if Some(self.row_index) == self.scroll_to_row {
@@ -1079,7 +1078,7 @@ impl<'a> TableBody<'a> {
                 overline: false,
                 response: &mut response,
             });
-            self.capture_hover_state(&response, row_index);
+            self.capture_hover_state(response.as_ref(), row_index);
         }
 
         if total_rows - max_row > 0 {
@@ -1161,7 +1160,7 @@ impl<'a> TableBody<'a> {
                     overline: false,
                     response: &mut response,
                 });
-                self.capture_hover_state(&response, row_index);
+                self.capture_hover_state(response.as_ref(), row_index);
                 break;
             }
         }
@@ -1184,7 +1183,7 @@ impl<'a> TableBody<'a> {
                 selected: false,
                 response: &mut response,
             });
-            self.capture_hover_state(&response, row_index);
+            self.capture_hover_state(response.as_ref(), row_index);
             cursor_y += (row_height + spacing.y) as f64;
 
             if Some(row_index) == self.scroll_to_row {
@@ -1235,8 +1234,8 @@ impl<'a> TableBody<'a> {
 
     // Capture the hover information for the just created row. This is used in the next render
     // to ensure that the entire row is highlighted.
-    fn capture_hover_state(&self, response: &Option<Response>, row_index: usize) {
-        let is_row_hovered = response.as_ref().is_some_and(|r| r.hovered());
+    fn capture_hover_state(&self, response: Option<&Response>, row_index: usize) {
+        let is_row_hovered = response.is_some_and(|r| r.hovered());
         if is_row_hovered {
             self.layout
                 .ui
