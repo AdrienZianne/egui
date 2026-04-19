@@ -79,6 +79,85 @@ pub struct SeparatorStyle {
     pub stroke: Stroke,
 }
 
+/// Each dedicated style must implement this trait to be used in the theme plugin system
+pub trait StyleStruct {
+    fn default_style(classes: &Classes, state: WidgetState, style: &Style) -> Self;
+}
+
+impl StyleStruct for WidgetStyle {
+    fn default_style(_classes: &Classes, state: WidgetState, style: &Style) -> Self {
+        let visuals = style.visuals.widgets.state(state);
+        let font_id = style.override_font_id.clone();
+        Self {
+            frame: Frame {
+                fill: visuals.bg_fill,
+                stroke: visuals.bg_stroke,
+                corner_radius: visuals.corner_radius,
+                inner_margin: style.spacing.button_padding.into(),
+                ..Default::default()
+            },
+            stroke: visuals.fg_stroke,
+            text: TextVisuals {
+                color: style
+                    .visuals
+                    .override_text_color
+                    .unwrap_or_else(|| visuals.text_color()),
+                font_id: font_id.unwrap_or_else(|| TextStyle::Body.resolve(style)),
+                strikethrough: Stroke::NONE,
+                underline: Stroke::NONE,
+            },
+        }
+    }
+}
+
+impl StyleStruct for ButtonStyle {
+    fn default_style(classes: &Classes, state: WidgetState, style: &Style) -> Self {
+        let mut visuals = *style.visuals.widgets.state(state);
+        let mut ws = WidgetStyle::default_style(classes, state, style);
+
+        if classes.has(SELECTED_CLASS) {
+            visuals.weak_bg_fill = style.visuals.selection.bg_fill;
+            visuals.bg_fill = style.visuals.selection.bg_fill;
+            visuals.fg_stroke = style.visuals.selection.stroke;
+            ws.text.color = style.visuals.selection.stroke.color;
+        }
+
+        Self {
+            frame: Frame {
+                fill: visuals.weak_bg_fill,
+                stroke: visuals.bg_stroke,
+                corner_radius: visuals.corner_radius,
+                outer_margin: (-Vec2::splat(visuals.expansion)).into(),
+                inner_margin: (style.spacing.button_padding + Vec2::splat(visuals.expansion)
+                    - Vec2::splat(visuals.bg_stroke.width))
+                .into(),
+                ..Default::default()
+            },
+            text_style: ws.text,
+        }
+    }
+}
+
+impl StyleStruct for CheckboxStyle {
+    fn default_style(classes: &Classes, state: WidgetState, style: &Style) -> Self {
+        let visuals = style.visuals.widgets.state(state);
+        let ws = WidgetStyle::default_style(classes, state, style);
+        Self {
+            frame: Frame::new(),
+            checkbox_size: style.spacing.icon_width,
+            check_size: style.spacing.icon_width_inner,
+            checkbox_frame: Frame {
+                fill: visuals.bg_fill,
+                corner_radius: visuals.corner_radius,
+                stroke: visuals.bg_stroke,
+                ..Default::default()
+            },
+            text_style: ws.text,
+            check_stroke: ws.stroke,
+        }
+    }
+}
+
 /// The different state of a widget can be
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WidgetState {
@@ -115,58 +194,53 @@ impl Response {
     }
 }
 
-pub trait ThemePlugin: Plugin {
+pub trait ThemePlugin<T>: Plugin {
     /// The style according to the classes and state of the widget
-    fn widget_style(
-        &self,
-        _classes: &Classes,
-        state: WidgetState,
-        base: WidgetStyle,
-    ) -> WidgetStyle;
+    fn style(&self, classes: &Classes, state: WidgetState, base: &Style) -> T;
+}
+
+/// Wrap a custom [`ThemePlugin`] so it can be fetched later
+pub struct ThemeWrap<T> {
+    plugin: Box<dyn ThemePlugin<T>>,
+}
+
+impl<T> ThemeWrap<T> {
+    pub fn new(plugin: impl ThemePlugin<T>) -> Self {
+        Self {
+            plugin: Box::new(plugin),
+        }
+    }
+}
+
+impl<T: 'static> Plugin for ThemeWrap<T> {
+    fn debug_name(&self) -> &'static str {
+        "ThemeWrap"
+    }
 }
 
 impl Ui {
-    pub fn widget_style(&self, id: crate::Id, classes: &Classes) -> WidgetStyle {
+    /// Access the installed theme plugin if there is one and fetch the requested widget style if it exist.
+    /// Fallback to the default style if not found.
+    ///
+    /// Requested widget style must implement [`StyleStruct`].
+    pub fn widget_style<T: StyleStruct + 'static>(&self, id: crate::Id, classes: &Classes) -> T {
         let state = self
             .ctx()
             .read_response(id)
             .map(|r| r.widget_state())
             .unwrap_or_default();
 
-        let visuals = self.style().visuals.widgets.state(state);
-        let font_id = self.style().override_font_id.clone();
-        let base = WidgetStyle {
-            frame: Frame {
-                fill: visuals.bg_fill,
-                stroke: visuals.bg_stroke,
-                corner_radius: visuals.corner_radius,
-                inner_margin: self.style().spacing.button_padding.into(),
-                ..Default::default()
-            },
-            stroke: visuals.fg_stroke,
-            text: TextVisuals {
-                color: self
-                    .style()
-                    .visuals
-                    .override_text_color
-                    .unwrap_or_else(|| visuals.text_color()),
-                font_id: font_id.unwrap_or_else(|| TextStyle::Body.resolve(self.style())),
-                strikethrough: Stroke::NONE,
-                underline: Stroke::NONE,
-            },
-        };
-
-        let x = self.ctx().plugin_opt::<CustomThemePlugin>();
+        let x = self.plugin_opt::<ThemeWrap<T>>();
         if let Some(v) = x {
-            v.lock().widget_style(classes, state, base)
+            v.lock().plugin.style(classes, state, self.style())
         } else {
-            base
+            T::default_style(classes, state, self.style())
         }
     }
 }
 
 impl Style {
-    pub fn widget_style(&self, classes: &Classes, state: WidgetState) -> WidgetStyle {
+    pub fn widget_style(&self, _classes: &Classes, state: WidgetState) -> WidgetStyle {
         let visuals = self.visuals.widgets.state(state);
         let font_id = self.override_font_id.clone();
         WidgetStyle {

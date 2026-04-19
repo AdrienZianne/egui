@@ -310,7 +310,7 @@ impl<'a> Button<'a> {
 
         classes.add_class_if(SELECTED_CLASS, selected);
 
-        let ButtonStyle { frame, text_style } = ui.style().button_style(&classes, state);
+        let ButtonStyle { frame, text_style } = ui.widget_style(id, &classes);
 
         let mut button_padding = if has_frame_margin {
             frame.inner_margin
