@@ -204,6 +204,7 @@ impl Response {
 }
 
 impl Style {
+    /// The general widget style. The style is computed according to the classes and state of the widget.
     pub fn widget_style(&self, _classes: &Classes, state: WidgetState) -> WidgetStyle {
         let visuals = self.visuals.widgets.state(state);
         let font_id = self.override_font_id.clone();
@@ -305,14 +306,20 @@ impl Style {
     }
 }
 
-/// The root class is present on every top-level ui
+/// The root class is a special class present on every top-level [`crate::Ui`].
 pub const ROOT_CLASS: &str = "root";
+
+/// The selected class is a special class present on selected [`crate::Button`].
 pub const SELECTED_CLASS: &str = "selected";
 
+/// A class is a static string identifier.
 pub type ClassName = Cow<'static, str>;
 
-/// The classes assigned to a widget
-#[derive(Debug, Default, Clone, Hash)]
+/// Classes are string identifier that can be set on widget/Ui.
+///
+/// This can be used by styling engine to compute a different style
+/// based on the set of classes present on the widget/Ui.
+#[derive(Debug, Default, Clone)]
 pub struct Classes {
     classes: SmallVec<[ClassName; 5]>,
 }
