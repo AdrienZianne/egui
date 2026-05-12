@@ -319,7 +319,7 @@ pub type ClassName = Cow<'static, str>;
 ///
 /// This can be used by styling engine to compute a different style
 /// based on the set of classes present on the widget/Ui.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Hash)]
 pub struct Classes {
     classes: SmallVec<[ClassName; 5]>,
 }
