@@ -2,14 +2,16 @@ use std::{borrow::Cow, fmt};
 
 use emath::Vec2;
 use epaint::{Color32, FontId, Shadow, Stroke, text::TextWrapMode};
+use fmt::Debug;
 use smallvec::SmallVec;
 
 use crate::{
-    Frame, Plugin, Response, Style, TextBuffer as _, TextStyle, Ui,
+    Frame, Response, Style, TextBuffer as _, TextStyle,
     style::{WidgetVisuals, Widgets},
 };
 
 /// General text style
+#[derive(Clone, Debug)]
 pub struct TextVisuals {
     /// Font used
     pub font_id: FontId,
@@ -23,6 +25,7 @@ pub struct TextVisuals {
 }
 
 /// General widget style
+#[derive(Clone, Debug)]
 pub struct WidgetStyle {
     pub frame: Frame,
 
@@ -32,12 +35,14 @@ pub struct WidgetStyle {
 }
 
 /// Dedicated button style
+#[derive(Clone, Debug)]
 pub struct ButtonStyle {
     pub frame: Frame,
     pub text_style: TextVisuals,
 }
 
 /// Dedicated checkbox style
+#[derive(Clone, Debug)]
 pub struct CheckboxStyle {
     /// Frame around
     pub frame: Frame,
@@ -59,6 +64,7 @@ pub struct CheckboxStyle {
 }
 
 /// Dedicated label style
+#[derive(Clone, Debug)]
 pub struct LabelStyle {
     /// Frame around
     pub frame: Frame,
@@ -71,6 +77,7 @@ pub struct LabelStyle {
 }
 
 /// Dedicated separator style
+#[derive(Clone, Debug)]
 pub struct SeparatorStyle {
     /// How much space is allocated in the layout direction
     pub spacing: f32,
@@ -80,8 +87,10 @@ pub struct SeparatorStyle {
 }
 
 /// Each dedicated style must implement this trait to be used in the theme plugin system
-pub trait StyleStruct {
-    fn default_style(classes: &Classes, state: WidgetState, style: &Style) -> Self;
+pub trait StyleStruct: Debug + Send + Sync + std::any::Any + 'static {
+    fn default_style(classes: &Classes, state: WidgetState, style: &Style) -> Self
+    where
+        Self: Sized;
 }
 
 impl StyleStruct for WidgetStyle {
@@ -159,7 +168,7 @@ impl StyleStruct for CheckboxStyle {
 }
 
 /// The different state of a widget can be
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WidgetState {
     Noninteractive,
     #[default]
@@ -190,51 +199,6 @@ impl Response {
             WidgetState::Hovered
         } else {
             WidgetState::Inactive
-        }
-    }
-}
-
-pub trait ThemePlugin<T>: Plugin {
-    /// The style according to the classes and state of the widget
-    fn style(&self, classes: &Classes, state: WidgetState, base: &Style) -> T;
-}
-
-/// Wrap a custom [`ThemePlugin`] so it can be fetched later
-pub struct ThemeWrap<T> {
-    plugin: Box<dyn ThemePlugin<T>>,
-}
-
-impl<T> ThemeWrap<T> {
-    pub fn new(plugin: impl ThemePlugin<T>) -> Self {
-        Self {
-            plugin: Box::new(plugin),
-        }
-    }
-}
-
-impl<T: 'static> Plugin for ThemeWrap<T> {
-    fn debug_name(&self) -> &'static str {
-        "ThemeWrap"
-    }
-}
-
-impl Ui {
-    /// Access the installed theme plugin if there is one and fetch the requested widget style if it exist.
-    /// Fallback to the default style if not found.
-    ///
-    /// Requested widget style must implement [`StyleStruct`].
-    pub fn widget_style<T: StyleStruct + 'static>(&self, id: crate::Id, classes: &Classes) -> T {
-        let state = self
-            .ctx()
-            .read_response(id)
-            .map(|r| r.widget_state())
-            .unwrap_or_default();
-
-        let x = self.plugin_opt::<ThemeWrap<T>>();
-        if let Some(v) = x {
-            v.lock().plugin.style(classes, state, self.style())
-        } else {
-            T::default_style(classes, state, self.style())
         }
     }
 }
@@ -348,7 +312,7 @@ pub const SELECTED_CLASS: &str = "selected";
 pub type ClassName = Cow<'static, str>;
 
 /// The classes assigned to a widget
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Hash)]
 pub struct Classes {
     classes: SmallVec<[ClassName; 5]>,
 }

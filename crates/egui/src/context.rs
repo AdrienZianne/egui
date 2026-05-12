@@ -7,7 +7,7 @@ use epaint::{
     ClippedPrimitive, ClippedShape, Color32, ImageData, Pos2, Rect, StrokeKind,
     TessellationOptions, TextureId, Vec2,
     emath::{self, TSTransform},
-    mutex::RwLock,
+    mutex::{Mutex, RwLock},
     stats::PaintStats,
     tessellator,
     text::{FontInsert, FontPriority, Fonts, FontsView},
@@ -36,8 +36,10 @@ use crate::{
     pass_state::PassState,
     plugin::{self, TypedPluginHandle},
     resize, response, scroll_area,
+    theme_plugin::{ThemeStyle, Themes},
     util::IdTypeMap,
     viewport::ViewportClass,
+    widget_style::{Classes, StyleStruct, WidgetState},
 };
 
 use crate::IdMap;
@@ -405,6 +407,8 @@ struct ContextImpl {
     is_accesskit_enabled: bool,
 
     loaders: Arc<Loaders>,
+
+    theme: Themes,
 }
 
 impl ContextImpl {
@@ -2009,6 +2013,46 @@ impl Context {
             self.add_plugin(default_plugin);
             self.plugin()
         }
+    }
+
+    /// Register a new theme plugin for a type of style
+    pub fn add_theme<S: StyleStruct + 'static>(
+        &self,
+        theme: &Arc<Mutex<impl ThemeStyle<S> + Send + Sync + 'static>>,
+    ) {
+        // println!("style struct : {:?}", std::any::TypeId::of::<S>());
+        // println!("plugin : {:?}", handle.type_id());
+        self.write(|ctx| ctx.theme.register::<S>(Arc::clone(theme)));
+    }
+
+    /// Return the style computed by a plugin if there is one available
+    pub fn get_style<S: StyleStruct + Clone + 'static>(
+        &self,
+        classes: &Classes,
+        state: WidgetState,
+        base: &Style,
+    ) -> Option<S> {
+        self.write(move |ctx| ctx.theme.get::<S>(classes, state, base))
+    }
+
+    /// Change the current theme used by the system to compute the style
+    pub fn switch_theme(&self, theme_id: &impl ToString) {
+        self.write(|ctx| ctx.theme.set_current_theme(theme_id));
+    }
+
+    /// A list of the name of the registered themes
+    pub fn availables_themes(&self) -> Vec<String> {
+        self.read(|ctx| ctx.theme.available_themes())
+    }
+
+    /// The current theme used to compute the style
+    pub fn current_theme(&self) -> Option<String> {
+        self.read(|ctx| ctx.theme.current_theme())
+    }
+
+    /// Invalidate the current cache to force-recompute the style
+    pub fn invalidate_cache(&self) {
+        self.write(|ctx| ctx.theme.invalidate_cache());
     }
 }
 
