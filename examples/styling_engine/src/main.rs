@@ -1,12 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![expect(rustdoc::missing_crate_level_docs)] // it's an example
 
+use std::sync::Arc;
+
 use eframe::egui::{
-    self, Button, Frame, Margin, Panel, UiBuilder,
-    widget_style::{ButtonStyle, HasClasses as _, ThemeWrap, WidgetStyle},
+    self, Button, Color32, ComboBox, Frame, Margin, Panel, UiBuilder,
+    mutex::Mutex,
+    widget_style::{ButtonStyle, HasClasses as _, WidgetStyle},
 };
 
-use crate::custom_engine::CustomThemePlugin;
+use crate::custom_engine::{CustomThemePluginA, CustomThemePluginB};
 
 mod custom_engine;
 
@@ -18,12 +21,20 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    let mut style_code = "// future style code live editor".to_owned();
+    let mut style_code = String::new();
     let mut toggled = false;
+    let mut selected = None;
+    let ctpa = Arc::new(Mutex::new(CustomThemePluginA::default()));
+
+    let ctpb = Arc::new(Mutex::new(CustomThemePluginB));
 
     eframe::run_ui_native("My egui App", options, move |ui, _frame| {
-        ui.add_plugin(ThemeWrap::<WidgetStyle>::new(CustomThemePlugin));
-        ui.add_plugin(ThemeWrap::<ButtonStyle>::new(CustomThemePlugin));
+        // Register the theme plugin and which style they implement
+        ui.add_theme::<WidgetStyle>(&ctpa);
+        ui.add_theme::<ButtonStyle>(&ctpa);
+
+        ui.add_theme::<WidgetStyle>(&ctpb);
+        ui.add_theme::<ButtonStyle>(&ctpb);
 
         ui.scope_builder(UiBuilder::new().with_class("body"), |ui| {
             ui.label("body");
@@ -31,9 +42,18 @@ fn main() -> eframe::Result {
 
             Panel::left("style_code").show_inside(ui, |ui| {
                 ui.scope_builder(UiBuilder::new().with_class("panel_left"), |ui| {
-                    ui.label("style code editor");
+                    ui.label(
+                        "Live editor\n(type color hex to change the color of the dynamic button)",
+                    );
 
-                    ui.text_edit_multiline(&mut style_code);
+                    if ui.text_edit_multiline(&mut style_code).changed() {
+                        if let Ok(color) = Color32::from_hex(&style_code) {
+                            ctpa.lock().color = Some(color);
+                        } else {
+                            ctpa.lock().color = None;
+                        }
+                        ui.invalidate_cache();
+                    }
                 });
             });
 
@@ -65,6 +85,7 @@ fn main() -> eframe::Result {
             ui.add(Button::new("Normal"));
             ui.add(Button::new("red").with_class("red"));
             ui.add(Button::new("blue").with_class("blue"));
+            ui.add(Button::new("dynamic in engine A").with_class("dynamic"));
             if ui
                 .add(
                     Button::new("red/blue")
@@ -74,6 +95,23 @@ fn main() -> eframe::Result {
                 .clicked()
             {
                 toggled = !toggled;
+            }
+
+            let before = selected.clone();
+            ComboBox::from_label("The current engine")
+                .selected_text(format!(
+                    "{:?}",
+                    ui.current_theme().unwrap_or_else(|| "None".to_owned())
+                ))
+                .show_ui(ui, |ui| {
+                    for i in ui.availables_themes() {
+                        ui.selectable_value(&mut selected, Some(i.clone()), format!("{i:?}"));
+                    }
+                });
+            if let Some(selected) = selected.clone()
+                && before.is_none_or(|b| b != selected)
+            {
+                ui.switch_theme(&selected);
             }
         });
     })
