@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 use eframe::egui::{
-    self, Button, Color32, ComboBox, Frame, Margin, Panel, UiBuilder,
+    self, Button, Color32, ComboBox, Frame, Margin, Panel, RichText, UiBuilder,
     mutex::Mutex,
     widget_style::{ButtonStyle, HasClasses as _, WidgetStyle},
 };
 
-use crate::custom_engine::{CustomThemePluginA, CustomThemePluginB};
+use crate::custom_engine::{CustomThemePluginA, CustomThemePluginB, ESSEngine};
 
 mod custom_engine;
 
@@ -21,15 +21,33 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    let mut style_code = String::new();
+    let mut style_code = "
+.red {
+    fill: #f00;
+}
+
+.blue {
+    fill: #00f;
+    border: 10;
+}
+"
+    .to_owned();
+
     let mut toggled = false;
     let mut selected = None;
     let ctpa = Arc::new(Mutex::new(CustomThemePluginA::default()));
 
     let ctpb = Arc::new(Mutex::new(CustomThemePluginB));
 
+    let ess = Arc::new(Mutex::new(ESSEngine::default()));
+
+    let mut parse_result = ess.lock().try_parse(&style_code);
+
     eframe::run_ui_native("My egui App", options, move |ui, _frame| {
         // Register the theme plugin and which style they implement
+        ui.add_theme::<WidgetStyle>(&ess);
+        ui.add_theme::<ButtonStyle>(&ess);
+
         ui.add_theme::<WidgetStyle>(&ctpa);
         ui.add_theme::<ButtonStyle>(&ctpa);
 
@@ -47,12 +65,20 @@ fn main() -> eframe::Result {
                     );
 
                     if ui.text_edit_multiline(&mut style_code).changed() {
-                        if let Ok(color) = Color32::from_hex(&style_code) {
-                            ctpa.lock().color = Some(color);
-                        } else {
-                            ctpa.lock().color = None;
-                        }
+                        // if let Ok(color) = Color32::from_hex(&style_code) {
+                        //     ctpa.lock().color = Some(color);
+                        // } else {
+                        //     ctpa.lock().color = None;
+                        // }
+
+                        parse_result = ess.lock().try_parse(&style_code);
+
+                        // Should find a way to detect if a change is made on a plugin
+                        // Maybe by saving the plugin in the system instead and invalidating the cache when it's pulled as mut ?
                         ui.invalidate_cache();
+                    }
+                    if let Err(error) = parse_result.clone() {
+                        ui.label(RichText::new(error).color(Color32::RED));
                     }
                 });
             });
