@@ -88,30 +88,30 @@ pub struct SeparatorStyle {
 
 /// Each dedicated style must implement this trait to be used in the theme plugin system
 pub trait StyleStruct: Debug + Send + Sync + std::any::Any + 'static {
-    fn default_style(classes: &Classes, state: WidgetState, style: &Style) -> Self
+    fn default_style(classes: &Classes, state: WidgetState, base: &Style) -> Self
     where
         Self: Sized;
 }
 
 impl StyleStruct for WidgetStyle {
-    fn default_style(_classes: &Classes, state: WidgetState, style: &Style) -> Self {
-        let visuals = style.visuals.widgets.state(state);
-        let font_id = style.override_font_id.clone();
+    fn default_style(_classes: &Classes, state: WidgetState, base: &Style) -> Self {
+        let visuals = base.visuals.widgets.state(state);
+        let font_id = base.override_font_id.clone();
         Self {
             frame: Frame {
                 fill: visuals.bg_fill,
                 stroke: visuals.bg_stroke,
                 corner_radius: visuals.corner_radius,
-                inner_margin: style.spacing.button_padding.into(),
+                inner_margin: base.spacing.button_padding.into(),
                 ..Default::default()
             },
             stroke: visuals.fg_stroke,
             text: TextVisuals {
-                color: style
+                color: base
                     .visuals
                     .override_text_color
                     .unwrap_or_else(|| visuals.text_color()),
-                font_id: font_id.unwrap_or_else(|| TextStyle::Body.resolve(style)),
+                font_id: font_id.unwrap_or_else(|| TextStyle::Body.resolve(base)),
                 strikethrough: Stroke::NONE,
                 underline: Stroke::NONE,
             },
@@ -120,15 +120,15 @@ impl StyleStruct for WidgetStyle {
 }
 
 impl StyleStruct for ButtonStyle {
-    fn default_style(classes: &Classes, state: WidgetState, style: &Style) -> Self {
-        let mut visuals = *style.visuals.widgets.state(state);
-        let mut ws = WidgetStyle::default_style(classes, state, style);
+    fn default_style(classes: &Classes, state: WidgetState, base: &Style) -> Self {
+        let mut visuals = *base.visuals.widgets.state(state);
+        let mut ws = WidgetStyle::default_style(classes, state, base);
 
         if classes.has(SELECTED_CLASS) {
-            visuals.weak_bg_fill = style.visuals.selection.bg_fill;
-            visuals.bg_fill = style.visuals.selection.bg_fill;
-            visuals.fg_stroke = style.visuals.selection.stroke;
-            ws.text.color = style.visuals.selection.stroke.color;
+            visuals.weak_bg_fill = base.visuals.selection.bg_fill;
+            visuals.bg_fill = base.visuals.selection.bg_fill;
+            visuals.fg_stroke = base.visuals.selection.stroke;
+            ws.text.color = base.visuals.selection.stroke.color;
         }
 
         Self {
@@ -137,7 +137,7 @@ impl StyleStruct for ButtonStyle {
                 stroke: visuals.bg_stroke,
                 corner_radius: visuals.corner_radius,
                 outer_margin: (-Vec2::splat(visuals.expansion)).into(),
-                inner_margin: (style.spacing.button_padding + Vec2::splat(visuals.expansion)
+                inner_margin: (base.spacing.button_padding + Vec2::splat(visuals.expansion)
                     - Vec2::splat(visuals.bg_stroke.width))
                 .into(),
                 ..Default::default()
@@ -148,13 +148,13 @@ impl StyleStruct for ButtonStyle {
 }
 
 impl StyleStruct for CheckboxStyle {
-    fn default_style(classes: &Classes, state: WidgetState, style: &Style) -> Self {
-        let visuals = style.visuals.widgets.state(state);
-        let ws = WidgetStyle::default_style(classes, state, style);
+    fn default_style(classes: &Classes, state: WidgetState, base: &Style) -> Self {
+        let visuals = base.visuals.widgets.state(state);
+        let ws = WidgetStyle::default_style(classes, state, base);
         Self {
             frame: Frame::new(),
-            checkbox_size: style.spacing.icon_width,
-            check_size: style.spacing.icon_width_inner,
+            checkbox_size: base.spacing.icon_width,
+            check_size: base.spacing.icon_width_inner,
             checkbox_frame: Frame {
                 fill: visuals.bg_fill,
                 corner_radius: visuals.corner_radius,
@@ -402,5 +402,9 @@ pub trait HasClasses {
     /// True if the class is present
     fn has(&self, class: impl Into<ClassName>) -> bool {
         self.classes().classes.contains(&class.into())
+    }
+
+    fn list(&self) -> Vec<ClassName> {
+        self.classes().classes.to_vec()
     }
 }

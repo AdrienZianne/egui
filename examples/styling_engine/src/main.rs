@@ -1,15 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![expect(rustdoc::missing_crate_level_docs)] // it's an example
 
-use std::sync::Arc;
-
+use eframe::egui::widget_style::WidgetStyle;
 use eframe::egui::{
-    self, Button, Color32, ComboBox, Frame, Margin, Panel, RichText, UiBuilder,
-    mutex::Mutex,
-    widget_style::{ButtonStyle, HasClasses as _, WidgetStyle},
+    self, Button, Frame, Margin, Panel, UiBuilder,
+    widget_style::{ButtonStyle, HasClasses as _},
 };
 
-use crate::custom_engine::{CustomThemePluginA, CustomThemePluginB, ESSEngine};
+use crate::custom_engine::ESSEngine;
 
 mod custom_engine;
 
@@ -34,25 +32,15 @@ fn main() -> eframe::Result {
     .to_owned();
 
     let mut toggled = false;
-    let mut selected = None;
-    let ctpa = Arc::new(Mutex::new(CustomThemePluginA::default()));
 
-    let ctpb = Arc::new(Mutex::new(CustomThemePluginB));
-
-    let ess = Arc::new(Mutex::new(ESSEngine::default()));
-
-    let mut parse_result = ess.lock().try_parse(&style_code);
+    // let mut parse_result = ess.lock().try_parse(&style_code);
 
     eframe::run_ui_native("My egui App", options, move |ui, _frame| {
         // Register the theme plugin and which style they implement
-        ui.add_theme::<WidgetStyle>(&ess);
-        ui.add_theme::<ButtonStyle>(&ess);
-
-        ui.add_theme::<WidgetStyle>(&ctpa);
-        ui.add_theme::<ButtonStyle>(&ctpa);
-
-        ui.add_theme::<WidgetStyle>(&ctpb);
-        ui.add_theme::<ButtonStyle>(&ctpb);
+        if let Ok(engine) = ESSEngine::try_parse(&style_code) {
+            ui.add_theme::<WidgetStyle>(engine.clone());
+            ui.add_theme::<ButtonStyle>(engine);
+        }
 
         ui.scope_builder(UiBuilder::new().with_class("body"), |ui| {
             ui.label("body");
@@ -64,22 +52,15 @@ fn main() -> eframe::Result {
                         "Live editor\n(type color hex to change the color of the dynamic button)",
                     );
 
-                    if ui.text_edit_multiline(&mut style_code).changed() {
-                        // if let Ok(color) = Color32::from_hex(&style_code) {
-                        //     ctpa.lock().color = Some(color);
-                        // } else {
-                        //     ctpa.lock().color = None;
-                        // }
-
-                        parse_result = ess.lock().try_parse(&style_code);
-
-                        // Should find a way to detect if a change is made on a plugin
-                        // Maybe by saving the plugin in the system instead and invalidating the cache when it's pulled as mut ?
-                        ui.invalidate_cache();
+                    if ui.text_edit_multiline(&mut style_code).changed()
+                        && let Ok(engine) = ESSEngine::try_parse(&style_code)
+                    {
+                        ui.add_theme::<WidgetStyle>(engine.clone());
+                        ui.add_theme::<ButtonStyle>(engine);
                     }
-                    if let Err(error) = parse_result.clone() {
-                        ui.label(RichText::new(error).color(Color32::RED));
-                    }
+
+                    // Should find a way to detect if a change is made on a plugin
+                    // Maybe by saving the plugin in the system instead and invalidating the cache when it's pulled as mut ?
                 });
             });
 
@@ -121,23 +102,6 @@ fn main() -> eframe::Result {
                 .clicked()
             {
                 toggled = !toggled;
-            }
-
-            let before = selected.clone();
-            ComboBox::from_label("The current engine")
-                .selected_text(format!(
-                    "{:?}",
-                    ui.current_theme().unwrap_or_else(|| "None".to_owned())
-                ))
-                .show_ui(ui, |ui| {
-                    for i in ui.availables_themes() {
-                        ui.selectable_value(&mut selected, Some(i.clone()), format!("{i:?}"));
-                    }
-                });
-            if let Some(selected) = selected.clone()
-                && before.is_none_or(|b| b != selected)
-            {
-                ui.switch_theme(&selected);
             }
         });
     })
