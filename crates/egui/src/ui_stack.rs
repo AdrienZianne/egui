@@ -1,7 +1,8 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::{any::Any, iter::FusedIterator};
 
-use crate::widget_style::Classes;
+use crate::widget_style::{ClassName, Classes, HasClasses as _};
 use epaint::Color32;
 
 use crate::{Direction, Frame, Id, Rect};
@@ -289,6 +290,48 @@ impl UiStack {
     /// Check if this node is or is contained in a [`crate::Ui`] of a specific kind.
     pub fn contained_in(&self, kind: UiKind) -> bool {
         self.iter().any(|frame| frame.kind() == Some(kind))
+    }
+}
+
+impl UiStack {
+    pub fn has_parent(&self, class: &ClassName) -> bool {
+        self.parent
+            .as_ref()
+            .is_some_and(|parent| parent.classes.has(class))
+    }
+
+    pub fn has_ancestor(&self, class: &ClassName) -> bool {
+        for parent in self.iter() {
+            if parent.classes.has(class) {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn has_ancestors(&self, mut classes: Vec<impl AsRef<str>>) -> bool {
+        let Some(mut current_ancestor) = classes.pop() else {
+            return true;
+        };
+
+        for parent in self.iter() {
+            if parent.classes.has(&current_ancestor) {
+                if let Some(next_ancestor) = classes.pop() {
+                    current_ancestor = next_ancestor;
+                } else {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn ancestors(&self) -> Vec<Vec<Cow<'_, str>>> {
+        let mut s = vec![];
+        for parent in self.iter() {
+            s.push(parent.classes.list());
+        }
+        s
     }
 }
 

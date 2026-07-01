@@ -428,8 +428,9 @@ pub trait HasClasses {
     }
 
     /// True if the class is present
-    fn has(&self, class: impl Into<ClassName>) -> bool {
-        self.classes().classes.contains(&class.into())
+    fn has(&self, class: impl AsRef<str>) -> bool {
+        let class = class.as_ref();
+        self.classes().classes.iter().any(|c| c == class)
     }
 
     /// The list of class

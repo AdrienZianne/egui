@@ -19,8 +19,8 @@ use crate::{
     ImmediateViewportRendererCallback, Key, KeyboardShortcut, Label, LayerId, Memory,
     ModifierNames, Modifiers, NumExt as _, Order, Painter, RawInput, Response, RichText,
     SafeAreaInsets, ScrollArea, Sense, Style, TextStyle, TextureHandle, TextureOptions, Ui,
-    UiBuilder, ViewportBuilder, ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair,
-    ViewportIdSet, ViewportOutput, Visuals, Widget as _, WidgetRect, WidgetText,
+    UiBuilder, UiStack, ViewportBuilder, ViewportCommand, ViewportId, ViewportIdMap,
+    ViewportIdPair, ViewportIdSet, ViewportOutput, Visuals, Widget as _, WidgetRect, WidgetText,
     animation_manager::AnimationManager,
     containers::{self, area::AreaState},
     data::output::PlatformOutput,
@@ -2061,8 +2061,9 @@ impl Context {
         &self,
         classes: &Classes,
         state: WidgetState,
+        stack: &Arc<UiStack>,
     ) -> Option<S> {
-        self.write(move |ctx| ctx.themes.get::<S>(classes, state))
+        self.write(move |ctx| ctx.themes.get::<S>(classes, state, stack))
     }
 }
 

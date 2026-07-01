@@ -1,36 +1,50 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Write, sync::Arc};
 
 use eframe::egui::{
-    Color32,
+    Color32, UiStack,
     theme_plugin::{ThemeCache, ThemeStyle},
     widget_style::{
-        ButtonStyle, Classes, HasClasses as _, StyleStruct as _, WidgetState, WidgetStyle,
+        ButtonStyle, ClassName, Classes, HasClasses as _, StyleStruct as _, WidgetState,
+        WidgetStyle,
     },
 };
 use logos::Logos;
 
 #[derive(Debug, Default, Clone)]
 pub struct ESSEngine {
-    info: HashMap<String, Vec<(String, Value)>>,
+    info: HashMap<String, Rules>,
     cache: ThemeCache,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Rules {
+    pub rules: HashMap<Vec<String>, Vec<(String, Value)>>,
 }
 
 impl ESSEngine {
     pub fn try_parse(ess: &str) -> Result<Self, String> {
         let mut engine = Self::default();
         let mut lexer = Token::lexer(ess);
-        let mut hash = HashMap::new();
         while let Some(token) = lexer.next() {
+            let mut hash = HashMap::new();
             if token == Ok(Token::Class) {
-                let selector = lexer.slice()[1..].to_owned();
-                if lexer
-                    .next()
-                    .is_some_and(|token| token.is_ok_and(|token| token != Token::Open))
-                {
-                    return Err("No opening bracket found !".to_owned());
+                let mut selectors = vec![lexer.slice()[1..].to_owned()];
+
+                loop {
+                    let next = lexer.next();
+                    if next
+                        .as_ref()
+                        .is_some_and(|token| token == &Ok(Token::Class))
+                    {
+                        selectors.push(lexer.slice()[1..].to_owned());
+                    } else if next.as_ref().is_some_and(|token| token != &Ok(Token::Open)) {
+                        return Err("No opening bracket found !".to_owned());
+                    } else {
+                        break;
+                    }
                 }
 
-                let mut declarations = vec![];
+                let mut rules = vec![];
 
                 loop {
                     match lexer.next() {
@@ -60,7 +74,7 @@ impl ESSEngine {
                                 _ => return Err("Error".to_owned()),
                             };
 
-                            declarations.push((property, value));
+                            rules.push((property, value));
                         }
                         Some(Ok(Token::Close)) => break,
                         Some(Ok(v)) => {
@@ -70,17 +84,33 @@ impl ESSEngine {
                     }
                 }
 
-                hash.insert(selector, declarations);
+                let selector = selectors.pop().expect("Should have at least one selector");
+
+                engine
+                    .info
+                    .entry(selector)
+                    .and_modify(|e| {
+                        e.rules.insert(selectors.clone(), rules.clone());
+                    })
+                    .or_insert_with(|| {
+                        hash.insert(selectors, rules);
+                        Rules { rules: hash }
+                    });
             }
         }
-        engine.info = hash;
+
         Ok(engine)
     }
 }
 
 /// This implementation basically do nothing. This is only the minimum requirement with caching.
 impl ThemeStyle<WidgetStyle> for ESSEngine {
-    fn style(&mut self, classes: &Classes, state: WidgetState) -> WidgetStyle {
+    fn style(
+        &mut self,
+        classes: &Classes,
+        state: WidgetState,
+        stack: &Arc<UiStack>,
+    ) -> WidgetStyle {
         self.cache.get(classes, state, || {
             WidgetStyle::default_style(classes, state)
         })
@@ -88,24 +118,43 @@ impl ThemeStyle<WidgetStyle> for ESSEngine {
 }
 
 impl ThemeStyle<ButtonStyle> for ESSEngine {
-    fn style(&mut self, classes: &Classes, state: WidgetState) -> ButtonStyle {
+    fn style(
+        &mut self,
+        classes: &Classes,
+        state: WidgetState,
+        stack: &Arc<UiStack>,
+    ) -> ButtonStyle {
         self.cache.get(classes, state, || {
             let mut default = ButtonStyle::default_style(classes, state);
             for classe in classes.list() {
-                if let Some(properties) = self.info.get(&classe.to_string()) {
-                    for (property, value) in properties {
-                        match property.as_str() {
-                            "fill" => {
-                                if let Value::Color(color) = value {
-                                    default.frame.fill = *color;
+                if let Some(rules) = self.info.get(&classe.to_string()) {
+                    let mut keys = rules.rules.keys().clone().collect::<Vec<_>>();
+                    keys.sort();
+                    for hierarchy in keys {
+                        let properties = &rules.rules[hierarchy];
+
+                        println!(
+                            "does {} has {:?} in their ancestor ? {:?}",
+                            classe,
+                            hierarchy,
+                            stack.ancestors()
+                        );
+                        if stack.has_ancestors(hierarchy.clone()) {
+                            for (property, value) in properties {
+                                match property.as_str() {
+                                    "fill" => {
+                                        if let Value::Color(color) = value {
+                                            default.frame.fill = *color;
+                                        }
+                                    }
+                                    "border" => {
+                                        if let Value::Number(size) = value {
+                                            default.frame.stroke.width = *size as f32;
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
-                            "border" => {
-                                if let Value::Number(size) = value {
-                                    default.frame.stroke.width = *size as f32;
-                                }
-                            }
-                            _ => {}
                         }
                     }
                 }

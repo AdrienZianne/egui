@@ -3,7 +3,7 @@ use std::sync::Arc;
 use epaint::mutex::Mutex;
 
 use crate::{
-    Id, Ui,
+    Id, Ui, UiStack,
     util::IdTypeMap,
     widget_style::{Classes, StyleStruct, WidgetState},
 };
@@ -40,7 +40,7 @@ impl ThemeCache {
 /// A Theme plugin that implement a style computation for a defined `StyleStruct`
 pub trait ThemeStyle<S> {
     /// The style according to the classes and state of the widget
-    fn style(&mut self, classes: &Classes, state: WidgetState) -> S;
+    fn style(&mut self, classes: &Classes, state: WidgetState, stack: &Arc<UiStack>) -> S;
 }
 
 impl Ui {
@@ -60,7 +60,7 @@ impl Ui {
             .map(|r| r.widget_state())
             .unwrap_or_default();
 
-        if let Some(style) = self.get_style::<S>(classes, state) {
+        if let Some(style) = self.get_style::<S>(classes, state, self.stack()) {
             style
         } else {
             S::default_style(classes, state)
@@ -100,10 +100,11 @@ impl Themes {
         &self,
         classes: &Classes,
         state: WidgetState,
+        stack: &Arc<UiStack>,
     ) -> Option<S> {
         let v = self
             .themes
             .get_temp::<Arc<Mutex<Box<dyn ThemeStyle<S> + Send + Sync>>>>(Id::NULL);
-        v.map(|engine| engine.lock().style(classes, state))
+        v.map(|engine| engine.lock().style(classes, state, stack))
     }
 }

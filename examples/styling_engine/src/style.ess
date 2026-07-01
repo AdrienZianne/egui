@@ -2,7 +2,7 @@
     fill: #f00;
 }
 
-.blue {
+.child .blue {
     fill: #00f;
     border: 4;
 }

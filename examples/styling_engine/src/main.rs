@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![expect(rustdoc::missing_crate_level_docs)] // it's an example
 
+use eframe::egui::CentralPanel;
 use eframe::egui::widget_style::WidgetStyle;
 use eframe::egui::{
     self, Button, Frame, Margin, Panel, UiBuilder,
@@ -87,8 +88,10 @@ fn main() -> eframe::Result {
 
             ui.add(Button::new("Normal"));
             ui.add(Button::new("red").with_class("red"));
+            ui.scope_builder(UiBuilder::new().with_class("axel"), |ui| {
+                ui.add(Button::new("wat").with_class("red"));
+            });
             ui.add(Button::new("blue").with_class("blue"));
-            ui.add(Button::new("dynamic in engine A").with_class("dynamic"));
             if ui
                 .add(
                     Button::new("red/blue")
