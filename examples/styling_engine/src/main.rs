@@ -1,8 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![expect(rustdoc::missing_crate_level_docs)] // it's an example
 
-use eframe::egui::CentralPanel;
-use eframe::egui::widget_style::WidgetStyle;
 use eframe::egui::{
     self, Button, Frame, Margin, Panel, UiBuilder,
     widget_style::{ButtonStyle, HasClasses as _},
@@ -37,8 +35,7 @@ fn main() -> eframe::Result {
     eframe::run_ui_native("My egui App", options, move |ui, _frame| {
         // Register the theme plugin and which style they implement
         if let Ok(engine) = ESSEngine::try_parse(&style_code) {
-            ui.add_theme::<WidgetStyle>(engine.clone());
-            ui.add_theme::<ButtonStyle>(engine);
+            ui.add_widget_theme::<ButtonStyle>(engine);
         }
 
         ui.scope_builder(UiBuilder::new().with_class("body"), |ui| {
@@ -55,8 +52,7 @@ fn main() -> eframe::Result {
                         && let Ok(engine) = ESSEngine::try_parse(&style_code)
                     {
                         // Overwrite the current theme with the new one.clear
-                        ui.replace_theme::<WidgetStyle>(engine.clone());
-                        ui.replace_theme::<ButtonStyle>(engine);
+                        ui.replace_widget_theme::<ButtonStyle>(engine);
                     }
                 });
             });
@@ -88,10 +84,8 @@ fn main() -> eframe::Result {
 
             ui.add(Button::new("Normal"));
             ui.add(Button::new("red").with_class("red"));
-            ui.scope_builder(UiBuilder::new().with_class("axel"), |ui| {
-                ui.add(Button::new("wat").with_class("red"));
-            });
             ui.add(Button::new("blue").with_class("blue"));
+            ui.add(Button::new("dynamic in engine A").with_class("dynamic"));
             if ui
                 .add(
                     Button::new("red/blue")

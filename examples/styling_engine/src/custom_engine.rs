@@ -1,12 +1,9 @@
-use std::{collections::HashMap, fmt::Write, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use eframe::egui::{
-    Color32, UiStack,
+    Color32, Ui, UiStack,
     theme_plugin::{ThemeCache, ThemeStyle},
-    widget_style::{
-        ButtonStyle, ClassName, Classes, HasClasses as _, StyleStruct as _, WidgetState,
-        WidgetStyle,
-    },
+    widget_style::{BaseStyle, ButtonStyle, Classes, HasClasses as _, WidgetState},
 };
 use logos::Logos;
 
@@ -103,29 +100,20 @@ impl ESSEngine {
     }
 }
 
-/// This implementation basically do nothing. This is only the minimum requirement with caching.
-impl ThemeStyle<WidgetStyle> for ESSEngine {
-    fn style(
-        &mut self,
-        classes: &Classes,
-        state: WidgetState,
-        stack: &Arc<UiStack>,
-    ) -> WidgetStyle {
-        self.cache.get(classes, state, || {
-            WidgetStyle::default_style(classes, state)
-        })
-    }
-}
-
 impl ThemeStyle<ButtonStyle> for ESSEngine {
     fn style(
         &mut self,
+        ui: &Ui,
         classes: &Classes,
         state: WidgetState,
         stack: &Arc<UiStack>,
     ) -> ButtonStyle {
         self.cache.get(classes, state, || {
-            let mut default = ButtonStyle::default_style(classes, state);
+            let base = ui.get_widget_style::<BaseStyle>(classes, state);
+            let mut default = ButtonStyle {
+                frame: base.frame,
+                text_style: base.text,
+            };
             for classe in classes.list() {
                 if let Some(rules) = self.info.get(&classe.to_string()) {
                     let mut keys = rules.rules.keys().clone().collect::<Vec<_>>();

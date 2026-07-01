@@ -41,6 +41,13 @@ impl<'a> Checkbox<'a> {
         Self::new(checked, ())
     }
 
+    /// Output the checkbox's [`Atoms`].
+    ///
+    /// This includes any images you have on the checkbox.
+    pub fn atoms(&self) -> &Atoms<'a> {
+        &self.atoms
+    }
+
     /// Display an indeterminate state (neither checked nor unchecked)
     ///
     /// This only affects the checkbox's appearance. It will still toggle its boolean value when
@@ -63,9 +70,6 @@ impl Widget for Checkbox<'_> {
 
         // Get the widget style by reading the response from the previous pass
         let id = ui.next_auto_id();
-        let response: Option<Response> = ui.ctx().read_response(id);
-        let state = response.map(|r| r.widget_state()).unwrap_or_default();
-
         let CheckboxStyle {
             check_size,
             checkbox_frame,
@@ -73,7 +77,7 @@ impl Widget for Checkbox<'_> {
             frame,
             check_stroke,
             text_style,
-        } = ui.style().checkbox_style(&classes, state);
+        } = ui.widget_style(id, &classes);
 
         let mut min_size = Vec2::splat(ui.spacing().interact_size.y);
         min_size.y = min_size.y.at_least(checkbox_size);
