@@ -2,7 +2,8 @@
 #![expect(rustdoc::missing_crate_level_docs)] // it's an example
 
 use eframe::egui::{
-    self, Button, Frame, Margin, Panel, UiBuilder,
+    self, Button, Frame, Margin, Panel, Sense, UiBuilder,
+    theme_plugin::ThemeCache,
     widget_style::{ButtonStyle, HasClasses as _},
 };
 
@@ -35,7 +36,7 @@ fn main() -> eframe::Result {
     eframe::run_ui_native("My egui App", options, move |ui, _frame| {
         // Register the theme plugin and which style they implement
         match ESSEngine::try_parse(&style_code) {
-            Ok(engine) => ui.add_widget_theme::<ButtonStyle>(engine),
+            Ok(engine) => ui.add_widget_theme::<ButtonStyle>(ThemeCache::new(engine)),
             Err(e) => println!("{e}"),
         }
 
@@ -51,7 +52,9 @@ fn main() -> eframe::Result {
 
                     if ui.text_edit_multiline(&mut style_code).changed() {
                         match ESSEngine::try_parse(&style_code) {
-                            Ok(engine) => ui.replace_widget_theme::<ButtonStyle>(engine),
+                            Ok(engine) => {
+                                ui.replace_widget_theme::<ButtonStyle>(ThemeCache::new(engine));
+                            }
                             Err(e) => println!("{e}"),
                         }
                         // Overwrite the current theme with the new one.clear
@@ -88,7 +91,6 @@ fn main() -> eframe::Result {
             ui.add(Button::new("Normal"));
             ui.add(Button::new("red").with_class("red"));
             ui.add(Button::new("blue").with_class("blue"));
-            ui.add(Button::new("dynamic in engine A").with_class("dynamic"));
             if ui
                 .add(
                     Button::new("red/blue")
@@ -99,6 +101,17 @@ fn main() -> eframe::Result {
             {
                 toggled = !toggled;
             }
+
+            ui.scope_builder(
+                UiBuilder::default()
+                    .with_class("parent")
+                    .sense(Sense::hover()),
+                |ui| {
+                    Frame::new().inner_margin(20).show(ui, |ui| {
+                        ui.add(Button::new("child").with_class("child"));
+                    })
+                },
+            );
         });
     })
 }

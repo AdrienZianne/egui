@@ -1,11 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use eframe::egui::{
-    Color32, Context, Stroke, Ui, UiStack,
-    theme_plugin::ThemeStyle,
-    widget_style::{BaseStyle, ButtonStyle, Classes, HasClasses as _, WidgetState},
+    Color32, Context, Stroke, UiStack,
+    theme_plugin::StyleProvider,
+    widget_style::{BaseStyle, ButtonStyle, HasClasses as _, StyleArgs, WidgetState},
 };
-use logos::Logos;
 use pest::{
     Parser as _,
     iterators::{Pair, Pairs},
@@ -29,7 +28,7 @@ pub struct ESSEngine {
 /// }
 #[derive(Debug, Default, Clone)]
 pub struct Ess {
-    rules: HashMap<(WidgetState, Vec<(String, WidgetState)>), Vec<Property>>,
+    rules: Vec<(WidgetState, Vec<(String, WidgetState)>, Vec<Property>)>,
 }
 
 #[derive(Parser)]
@@ -68,8 +67,6 @@ impl ESSEngine {
             engine.insert_rule(first_class_state, ancestors, class_properties);
         }
 
-        // println!("{:?}", engine);
-
         Ok(engine)
     }
 
@@ -83,32 +80,31 @@ impl ESSEngine {
             .entry(class.0)
             .or_default()
             .rules
-            .insert((class.1, ancestors), properties);
+            .push((class.1, ancestors, properties));
     }
 }
 
-impl ThemeStyle<ButtonStyle> for ESSEngine {
-    fn style(
-        &mut self,
-        ui: &Ui,
-        classes: &Classes,
-        state: WidgetState,
-        stack: &Arc<UiStack>,
-    ) -> ButtonStyle {
-        let base = ui.get_widget_style::<BaseStyle>(classes, state);
+impl StyleProvider<ButtonStyle> for ESSEngine {
+    fn style(&mut self, modifiers: &StyleArgs<'_>) -> ButtonStyle {
+        let StyleArgs {
+            classes,
+            ctx,
+            stack,
+            state,
+            ..
+        } = modifiers;
+        let base = ctx.get_widget_style::<BaseStyle>(modifiers);
         let mut default = ButtonStyle {
             frame: base.frame,
             text_style: base.text,
         };
-        for classe in classes.list() {
+        for classe in classes.as_slice() {
             if let Some(ess) = self.info.get(&classe.to_string()) {
-                // println!("uh");
-                let keys = ess.rules.keys().clone().collect::<Vec<_>>();
-                // keys.sort();
-                for hierarchy in keys {
-                    let properties = &ess.rules[hierarchy];
-
-                    if has_ancestors(ui, stack, hierarchy.1.clone()) {
+                for (class_state, ancestors, properties) in &ess.rules {
+                    if *class_state != WidgetState::Inactive && state != class_state {
+                        continue;
+                    }
+                    if has_ancestors(ctx, stack, ancestors.clone()) {
                         for property in properties {
                             match property {
                                 Property::Border(width, color) => {
@@ -140,16 +136,14 @@ pub fn has_ancestors(
         return true;
     };
 
-    let mut ancestors = stack.ancestors();
-    ancestors.reverse();
-
-    let ancestor = stack;
-    while let Some(ancestor) = &ancestor.parent {
+    for parent in stack.iter() {
         let state = ctx
-            .read_response(ancestor.id)
+            .read_response(parent.id)
             .map_or(WidgetState::Inactive, |r| r.widget_state());
 
-        if ancestor.classes.has(&current_ancestor.0) && state == current_ancestor.1 {
+        if parent.classes.has(&current_ancestor.0)
+            && (current_ancestor.1 == WidgetState::Inactive || state == current_ancestor.1)
+        {
             if let Some(next_ancestor) = classes.pop() {
                 current_ancestor = next_ancestor;
             } else {
@@ -159,28 +153,6 @@ pub fn has_ancestors(
     }
 
     false
-}
-
-#[derive(Debug, Logos, PartialEq)]
-enum Token {
-    #[token("{")]
-    Open,
-    #[token("}")]
-    Close,
-    #[token(":")]
-    Is,
-    #[regex(r"\.[a-zA-Z]+")]
-    Class,
-    #[token(";")]
-    End,
-    #[regex(r"[a-zA-Z]+")]
-    Property,
-    #[regex(r"[0-9]+")]
-    Number,
-    #[regex(r"#(?:[0-9a-fA-F]{3}){1,2}")]
-    Color,
-    #[regex(r"[ \t\n\f]+", logos::skip)]
-    Whitespace,
 }
 
 #[derive(Debug, Clone)]
@@ -311,12 +283,4 @@ fn parse_integer(integer: &Pair<'_, Rule>) -> Result<i8, String> {
     } else {
         Err("Not a integer".to_owned())
     }
-}
-
-#[derive(Debug, Clone)]
-enum Value {
-    Number(i32),
-    Percentage(usize),
-    Text(String),
-    Color(Color32),
 }

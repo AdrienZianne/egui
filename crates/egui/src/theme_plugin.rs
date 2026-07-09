@@ -8,43 +8,49 @@ use crate::{
     util::IdTypeMap,
     widget_style::{
         BaseStyle, ButtonStyle, CheckboxStyle, Classes, HasClasses as _, LabelStyle,
-        SELECTED_CLASS, SeparatorStyle, TextVisuals, WidgetState, WidgetStyle,
+        SELECTED_CLASS, SeparatorStyle, StyleArgs, TextVisuals, WidgetState, WidgetStyle,
     },
 };
 
-/// A cache that can be implemented to reduce computation time of a `ThemeStyle`
+/// A cache that can be implemented to reduce computation time of a `StyleProvider`
 #[derive(Debug, Default, Clone)]
-pub struct ThemeCache {
+pub struct ThemeCache<Theme> {
     cache: IdTypeMap,
+    inner: Theme,
 }
 
-impl ThemeCache {
+impl<Theme> ThemeCache<Theme> {
+    pub fn new(theme: Theme) -> Self {
+        Self {
+            cache: IdTypeMap::default(),
+            inner: theme,
+        }
+    }
+}
+
+impl<Theme: StyleProvider<S>, S: WidgetStyle> StyleProvider<S> for ThemeCache<Theme> {
     /// Access the cache for the requested [`WidgetStyle`] based on the [`Classes`] and
     /// the [`WidgetState`]
     ///
     /// If no entry match the parameter then compute the fallback style and
     /// save the output for later.
-    pub fn get<S: WidgetStyle + 'static>(
-        &mut self,
-        classes: &Classes,
-        state: WidgetState,
-        fallback: impl FnOnce() -> S,
-    ) -> S {
+    fn style(&mut self, modifiers: &StyleArgs<'_>) -> S {
+        let StyleArgs { classes, state, .. } = modifiers;
         let style_id = Id::new(classes).with(state);
         if let Some(style) = self.cache.get_temp::<S>(style_id) {
             style
         } else {
-            let style = fallback();
+            let style = self.inner.style(modifiers);
             self.cache.insert_temp(style_id, style.clone());
             style
         }
     }
 }
 
-/// A Theme plugin that implement a style computation for a defined [`WidgetStyle`]
-pub trait ThemeStyle<S> {
+/// A Theme plugin that implement a style computation for a defined `WidgetStyle`
+pub trait StyleProvider<S> {
     /// The style according to the classes and state of the widget
-    fn style(&mut self, ui: &Ui, classes: &Classes, state: WidgetState, stack: &Arc<UiStack>) -> S;
+    fn style(&mut self, modifiers: &StyleArgs<'_>) -> S;
 
     /// Help to differ the different themes
     fn theme_type_id(&self) -> TypeId
@@ -58,15 +64,9 @@ pub trait ThemeStyle<S> {
 #[derive(Debug, Clone)]
 struct DefaultStyle;
 
-impl ThemeStyle<BaseStyle> for DefaultStyle {
-    fn style(
-        &mut self,
-        ui: &Ui,
-        _classes: &Classes,
-        state: WidgetState,
-        _stack: &Arc<UiStack>,
-    ) -> BaseStyle {
-        let style = ui.style();
+impl StyleProvider<BaseStyle> for DefaultStyle {
+    fn style(&mut self, modifiers: &StyleArgs<'_>) -> BaseStyle {
+        let StyleArgs { style, state, .. } = modifiers;
         let spacing = &style.spacing;
         let widget_visuals = match state {
             WidgetState::Noninteractive => style.visuals.widgets.noninteractive,
@@ -86,7 +86,8 @@ impl ThemeStyle<BaseStyle> for DefaultStyle {
             stroke: widget_visuals.fg_stroke,
             text: TextVisuals {
                 color: widget_visuals.text_color(),
-                font_id: style
+                font_id: modifiers
+                    .style
                     .override_font_id
                     .clone()
                     .unwrap_or_else(|| TextStyle::Body.resolve(style)),
@@ -97,15 +98,15 @@ impl ThemeStyle<BaseStyle> for DefaultStyle {
     }
 }
 
-impl ThemeStyle<ButtonStyle> for DefaultStyle {
-    fn style(
-        &mut self,
-        ui: &Ui,
-        classes: &Classes,
-        state: WidgetState,
-        _stack: &Arc<UiStack>,
-    ) -> ButtonStyle {
-        let style = ui.style();
+impl StyleProvider<ButtonStyle> for DefaultStyle {
+    fn style(&mut self, modifiers: &StyleArgs<'_>) -> ButtonStyle {
+        let StyleArgs {
+            ctx,
+            classes,
+            style,
+            state,
+            ..
+        } = modifiers;
         let spacing = &style.spacing;
         let mut widget_visuals = match state {
             WidgetState::Noninteractive => style.visuals.widgets.noninteractive,
@@ -114,7 +115,7 @@ impl ThemeStyle<ButtonStyle> for DefaultStyle {
             WidgetState::Active => style.visuals.widgets.active,
         };
 
-        let mut ws: BaseStyle = ui.get_widget_style(classes, state);
+        let mut ws: BaseStyle = ctx.get_widget_style(modifiers);
 
         if classes.has(SELECTED_CLASS) {
             let visuals = &style.visuals;
@@ -140,15 +141,11 @@ impl ThemeStyle<ButtonStyle> for DefaultStyle {
     }
 }
 
-impl ThemeStyle<CheckboxStyle> for DefaultStyle {
-    fn style(
-        &mut self,
-        ui: &Ui,
-        classes: &Classes,
-        state: WidgetState,
-        _stack: &Arc<UiStack>,
-    ) -> CheckboxStyle {
-        let style = ui.style();
+impl StyleProvider<CheckboxStyle> for DefaultStyle {
+    fn style(&mut self, modifiers: &StyleArgs<'_>) -> CheckboxStyle {
+        let StyleArgs {
+            ctx, style, state, ..
+        } = modifiers;
         let spacing = &style.spacing;
         let widget_visuals = match state {
             WidgetState::Noninteractive => style.visuals.widgets.noninteractive,
@@ -157,7 +154,7 @@ impl ThemeStyle<CheckboxStyle> for DefaultStyle {
             WidgetState::Active => style.visuals.widgets.active,
         };
 
-        let ws: BaseStyle = ui.get_widget_style(classes, state);
+        let ws: BaseStyle = ctx.get_widget_style(modifiers);
 
         CheckboxStyle {
             frame: Frame::new(),
@@ -175,15 +172,10 @@ impl ThemeStyle<CheckboxStyle> for DefaultStyle {
     }
 }
 
-impl ThemeStyle<LabelStyle> for DefaultStyle {
-    fn style(
-        &mut self,
-        ui: &Ui,
-        classes: &Classes,
-        state: WidgetState,
-        _stack: &Arc<UiStack>,
-    ) -> LabelStyle {
-        let ws: BaseStyle = ui.get_widget_style(classes, state);
+impl StyleProvider<LabelStyle> for DefaultStyle {
+    fn style(&mut self, modifiers: &StyleArgs<'_>) -> LabelStyle {
+        let StyleArgs { ctx, .. } = modifiers;
+        let ws: BaseStyle = ctx.get_widget_style(modifiers);
 
         LabelStyle {
             frame: Frame {
@@ -200,15 +192,10 @@ impl ThemeStyle<LabelStyle> for DefaultStyle {
     }
 }
 
-impl ThemeStyle<SeparatorStyle> for DefaultStyle {
-    fn style(
-        &mut self,
-        ui: &Ui,
-        classes: &Classes,
-        state: WidgetState,
-        _stack: &Arc<UiStack>,
-    ) -> SeparatorStyle {
-        let ws: BaseStyle = ui.get_widget_style(classes, state);
+impl StyleProvider<SeparatorStyle> for DefaultStyle {
+    fn style(&mut self, modifiers: &StyleArgs<'_>) -> SeparatorStyle {
+        let StyleArgs { ctx, .. } = modifiers;
+        let ws: BaseStyle = ctx.get_widget_style(modifiers);
 
         SeparatorStyle {
             spacing: 6.0,
@@ -232,17 +219,13 @@ impl Ui {
             .map(|r| r.widget_state())
             .unwrap_or_default();
 
-        self.get_widget_style::<S>(classes, state)
-    }
-
-    /// Compute the [`WidgetStyle`] using the registered theme.
-    pub fn get_widget_style<S: WidgetStyle + Clone + 'static>(
-        &self,
-        classes: &Classes,
-        state: WidgetState,
-    ) -> S {
-        self.ctx()
-            .get_widget_style(self, classes, state, self.stack())
+        self.get_widget_style::<S>(&StyleArgs {
+            classes,
+            state,
+            style: self.style(),
+            stack: self.stack(),
+            ctx: self,
+        })
     }
 }
 
@@ -250,7 +233,7 @@ pub struct Themes {
     themes: IdTypeMap,
 }
 
-type ThemeWrap<S> = Arc<Mutex<Box<dyn ThemeStyle<S> + Send + Sync>>>;
+type ThemeWrap<S> = Arc<Mutex<Box<dyn StyleProvider<S> + Send + Sync>>>;
 
 impl Default for Themes {
     /// Register the default egui theme
@@ -287,25 +270,25 @@ impl Default for Themes {
 }
 
 impl Themes {
-    /// Register a [`ThemeStyle`] for the specified widget [`WidgetStyle`] `S`
+    /// Register a [`StyleProvider`] for the specified widget [`WidgetStyle`] `S`
     ///
     /// Existing themes are overwritten if `force` is `true` or the new theme differs.
     pub(crate) fn register<S: WidgetStyle + 'static>(
         &mut self,
-        theme: impl ThemeStyle<S> + Send + Sync + 'static,
+        theme: impl StyleProvider<S> + Send + Sync + 'static,
         force: bool,
     ) {
         if !force
             && self
                 .themes
-                .get_temp::<Arc<Mutex<Box<dyn ThemeStyle<S> + Send + Sync>>>>(Id::NULL)
+                .get_temp::<Arc<Mutex<Box<dyn StyleProvider<S> + Send + Sync>>>>(Id::NULL)
                 .is_some_and(|t| t.lock().theme_type_id() == theme.theme_type_id())
         {
             return;
         }
 
         self.themes
-            .insert_temp::<Arc<Mutex<Box<dyn ThemeStyle<S> + Send + Sync>>>>(
+            .insert_temp::<Arc<Mutex<Box<dyn StyleProvider<S> + Send + Sync>>>>(
                 Id::NULL,
                 Arc::new(Mutex::new(Box::new(theme))),
             );
@@ -314,17 +297,11 @@ impl Themes {
     /// Fetch the style of the current theme
     pub fn get<S: WidgetStyle + 'static>(
         &self,
-        ui: &Ui,
-        classes: &Classes,
-        state: WidgetState,
-        stack: &Arc<UiStack>,
-    ) -> S {
+    ) -> Arc<Mutex<Box<dyn StyleProvider<S> + Send + Sync>>> {
         let v = self
             .themes
-            .get_temp::<Arc<Mutex<Box<dyn ThemeStyle<S> + Send + Sync>>>>(Id::NULL);
+            .get_temp::<Arc<Mutex<Box<dyn StyleProvider<S> + Send + Sync>>>>(Id::NULL);
 
         v.unwrap_or_else(|| panic!("A style should be set for {:?}", std::any::type_name::<S>()))
-            .lock()
-            .style(ui, classes, state, stack)
     }
 }

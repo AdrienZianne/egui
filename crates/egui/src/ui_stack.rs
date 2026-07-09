@@ -326,10 +326,10 @@ impl UiStack {
         false
     }
 
-    pub fn ancestors(&self) -> Vec<Vec<Cow<'_, str>>> {
+    pub fn ancestors(&self) -> Vec<&[Cow<'_, str>]> {
         let mut s = vec![];
         for parent in self.iter() {
-            s.push(parent.classes.list());
+            s.push(parent.classes.as_slice());
         }
         s
     }
