@@ -18,3 +18,5 @@ eframe = { workspace = true, features = [
 ] }
 env_logger = { workspace = true, features = ["auto-color", "humantime"] }
 logos = "0.16.1"
+pest = "2.8.7"
+pest_derive = "2.8.7"

@@ -1,0 +1,27 @@
+sheet = _{ WHITESPACE* ~ rule* }
+
+rule = { selector ~ "{" ~ properties? ~ "}" }
+
+properties = { property+ }
+property   = { text ~ ":" ~ values ~ ";" }
+
+values =  ${ value ~ (" " ~ value)* }
+value  =  _{ color | percent | pixel | number | text }
+
+color   = @{ "#" ~ (ASCII_HEX_DIGIT{6} | ASCII_HEX_DIGIT{3}) }
+pixel   = @{ "-"? ~ number ~ "px" }
+percent = @{ "-"? ~ number ~ "%" }
+number  = @{ "-"? ~ ASCII_DIGIT+ }
+
+selector = { class_state ~ class_state* }
+
+class_state = { class ~ (":" ~ text)? }
+
+open  = { "{" }
+close = { "}" }
+
+class = { "." ~ (ASCII_ALPHA)+ }
+text  = { (ASCII_ALPHA)+ }
+
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+COMMENT    = _{ "//" ~ (!"\n" ~ ANY)* }

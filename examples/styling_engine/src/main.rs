@@ -34,8 +34,9 @@ fn main() -> eframe::Result {
 
     eframe::run_ui_native("My egui App", options, move |ui, _frame| {
         // Register the theme plugin and which style they implement
-        if let Ok(engine) = ESSEngine::try_parse(&style_code) {
-            ui.add_widget_theme::<ButtonStyle>(engine);
+        match ESSEngine::try_parse(&style_code) {
+            Ok(engine) => ui.add_widget_theme::<ButtonStyle>(engine),
+            Err(e) => println!("{e}"),
         }
 
         ui.scope_builder(UiBuilder::new().with_class("body"), |ui| {
@@ -48,11 +49,13 @@ fn main() -> eframe::Result {
                         "Live editor\n(type color hex to change the color of the dynamic button)",
                     );
 
-                    if ui.text_edit_multiline(&mut style_code).changed()
-                        && let Ok(engine) = ESSEngine::try_parse(&style_code)
-                    {
+                    if ui.text_edit_multiline(&mut style_code).changed() {
+                        match ESSEngine::try_parse(&style_code) {
+                            Ok(engine) => ui.replace_widget_theme::<ButtonStyle>(engine),
+                            Err(e) => println!("{e}"),
+                        }
                         // Overwrite the current theme with the new one.clear
-                        ui.replace_widget_theme::<ButtonStyle>(engine);
+                        // ui.replace_widget_theme::<ButtonStyle>(engine);
                     }
                 });
             });
